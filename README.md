@@ -141,29 +141,113 @@ tab reload.
   card itself can only react to a timer finishing while it's actually
   mounted in an open browser tab — closing the tab doesn't cancel the HA
   timer (it keeps counting down server-side), but nothing will send the
-  "off" IR command when it reaches zero unless something server-side does
-  it. For that, add a small automation:
+  IR command when it reaches zero unless something server-side does it.
+  For that, add one or two small automations (see below).
 
-  ```yaml
-  automation:
-    - alias: "AC card — turn off when sleep timer finishes"
-      trigger:
-        - platform: event
-          event_type: timer.finished
-          event_data:
-            entity_id: timer.ac_card_sleep
-      action:
-        - service: remote.send_command
-          target:
-            entity_id: remote.broadlink
-          data:
-            device: air_conditioner
-            command: "off"   # or your raw/base64 code for 'off'
-  ```
+## Automations for reliable timer-based on/off
 
-  (While the card *is* open, it already does this itself as a
-  best-effort — see Changelog below — so the automation is really just
-  the "nobody's watching" backstop.)
+The card's own best-effort turn on/off (see Changelog) only fires while a
+browser tab with the card actually open is watching the timer. For it to
+work with **zero browser involvement** — dashboard closed, phone asleep,
+nobody home — the real logic has to live in a Home Assistant automation
+that reacts to the `timer.finished` event server-side. This is the
+reliable path and costs no extra resources either way: an idle automation
+waiting on an event uses no polling and no CPU between triggers.
+
+Two independent timer helpers are supported: one dedicated to turning the
+AC **off** (`timer_helper`) and, optionally, a second one dedicated to
+turning it **on** (`timer_helper_on`). Each can drive its own automation.
+
+```yaml
+timer:
+  climate_sleep_timer:
+    name: Climate control — sleep timer
+  climate_wakeup_timer:
+    name: Climate control — wake-up timer
+
+input_boolean:
+  climate_auto_off_enabled:
+    name: Climate control — auto-off on timer
+  climate_auto_on_enabled:
+    name: Climate control — auto-on on timer
+
+automation:
+  - alias: "Climate control: sleep timer — toggle by contact state"
+    description: >-
+      When the sleep timer finishes, checks the window/contact sensor and
+      switches the AC to the opposite state — off if the window is open,
+      on otherwise. Adjust the branches if you just want a plain "always
+      off" behavior instead.
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.climate_sleep_timer
+    conditions:
+      - condition: state
+        entity_id: input_boolean.climate_auto_off_enabled
+        state: "on"
+    actions:
+      - if:
+          - condition: state
+            entity_id: binary_sensor.climate_window_contact
+            state: "on"
+        then:
+          - action: remote.send_command
+            target:
+              entity_id: remote.climate_ir_blaster
+            data:
+              device: climate.air_conditioner
+              command: "off"
+        else:
+          - action: remote.send_command
+            target:
+              entity_id: remote.climate_ir_blaster
+            data:
+              device: climate.air_conditioner
+              command: "on"
+    mode: single
+
+  - alias: "Climate control: turn on when wake-up timer finishes"
+    description: Turns the AC on when the wake-up timer finishes.
+    triggers:
+      - trigger: event
+        event_type: timer.finished
+        event_data:
+          entity_id: timer.climate_wakeup_timer
+    conditions:
+      - condition: state
+        entity_id: input_boolean.climate_auto_on_enabled
+        state: "on"
+    actions:
+      - action: remote.send_command
+        target:
+          entity_id: remote.climate_ir_blaster
+        data:
+          device: climate.air_conditioner
+          command: "on"
+    mode: single
+```
+
+On the card, pick these entities on the **Entities** tab:
+
+| Config key                  | Points to                          | What it does                                                        |
+|------------------------------|-------------------------------------|-----------------------------------------------------------------------|
+| `timer_helper`               | `timer.climate_sleep_timer`         | The OFF timer — countdown shown on the card, T30/T60/etc. buttons.   |
+| `timer_helper_on`            | `timer.climate_wakeup_timer`        | An independent ON timer (optional; leave empty if you don't need one).|
+| `timer_off_enable_entity`    | `input_boolean.climate_auto_off_enabled` | Adds an OFF toggle switch on the card face.                     |
+| `timer_on_enable_entity`     | `input_boolean.climate_auto_on_enabled`  | Adds an ON toggle switch on the card face.                      |
+
+The two `input_boolean` fields are entirely optional. If you leave them
+empty, the card doesn't show any switches and the automations above (once
+you remove their `conditions:` block, or point it at your own toggle) run
+unconditionally whenever their timer finishes. If you set them, the card
+grows two small physical-looking switches under the button panel — flip
+them off and the corresponding automation's condition blocks it, without
+touching the automation itself or the timer. That also means you can
+choose, per household, whether the schedule is driven **purely by
+automations** (leave both switches on, or skip them entirely) or **from
+the card** (use the switches as an on/off gate you control by hand).
 
 ## Configuration example
 
@@ -234,6 +318,16 @@ npm test
 
 ## Changelog highlights
 
+- **1.7.0** — Added an optional second, independent timer helper
+  (`timer_helper_on`) for turning the AC on, separate from the existing
+  off timer. Added two optional physical-looking toggle switches on the
+  card face (`timer_off_enable_entity` / `timer_on_enable_entity`, bound
+  to `input_boolean` helpers) to enable/disable the matching automation
+  without editing YAML — see "Automations for reliable timer-based on/off"
+  above. The best-effort client-side fallback now covers the on-timer too
+  and respects both switches. No changes to idle CPU/DOM behavior — these
+  additions only run on the same `hass`-update signature check as
+  everything else, so they cost nothing while the dashboard isn't open.
 - **1.6.1** — Fixed the manual/dynamic timer forcing the big AC-temperature
   display fully visible while editing it with the AC off (it now only
   affects the timer readout, as intended). The card now skips all

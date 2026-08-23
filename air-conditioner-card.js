@@ -25,7 +25,7 @@
  * with any other Lovelace resource loaded on the same dashboard.
  */
 (function () {
-const CARD_VERSION = '1.6.1';
+const CARD_VERSION = '1.7.0';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // List of screen elements whose position/size can be adjusted in the editor.
@@ -194,8 +194,12 @@ const I18N = {
     opt_wind: 'Вітер', opt_humidity: 'Вологість', opt_none: 'Не показувати',
     f_outdoor_hum: 'Сенсор вологості на вулиці (якщо без weather)',
     f_temp_helper: 'Input_number для збереження температури (рекомендовано)',
-    f_timer_helper: 'Timer-помічник для таймера сну (рекомендовано)',
+    f_timer_helper: 'Timer-помічник для таймера ВИМКНЕННЯ (рекомендовано)',
+    f_timer_helper_on: 'Timer-помічник для таймера УВІМКНЕННЯ (окремий, необов’язково)',
+    f_timer_off_enable: 'Input_boolean — перемикач "Таймер вимкнення активний"',
+    f_timer_on_enable: 'Input_boolean — перемикач "Таймер увімкнення активний"',
     hint_helpers: 'Temp_helper та timer_helper — це input_number/timer helper-и Home Assistant. Без них картка працює, але температура і таймер скидаються при перезавантаженні вкладки.',
+    hint_timer_enable: 'Ці input_boolean — не обов’язкові. Якщо їх вказати, на картці з’являться перемикачі, якими можна вмикати/вимикати відповідну автоматизацію (не змінюючи саму автоматизацію). Приклади автоматизацій — у README.',
     sec_main_buttons: 'Основні кнопки',
     f_btn_on: 'Кнопка ON',
     f_btn_off: 'Кнопка OFF',
@@ -268,8 +272,12 @@ const I18N = {
     opt_wind: 'Wind', opt_humidity: 'Humidity', opt_none: 'Hidden',
     f_outdoor_hum: 'Outdoor humidity sensor (if no weather entity)',
     f_temp_helper: 'input_number helper to persist temperature (recommended)',
-    f_timer_helper: 'timer helper for the sleep timer (recommended)',
+    f_timer_helper: 'timer helper for the OFF timer (recommended)',
+    f_timer_helper_on: 'timer helper for a separate ON timer (optional)',
+    f_timer_off_enable: 'input_boolean — "OFF-timer automation active" switch',
+    f_timer_on_enable: 'input_boolean — "ON-timer automation active" switch',
     hint_helpers: 'temp_helper and timer_helper are Home Assistant input_number/timer helpers. The card works without them, but temperature and timer reset on tab reload.',
+    hint_timer_enable: 'These input_boolean entities are optional. If set, the card shows switches to enable/disable the matching automation without editing the automation itself. See the README for example automations.',
     sec_main_buttons: 'Main buttons',
     f_btn_on: 'ON button',
     f_btn_off: 'OFF button',
@@ -342,8 +350,12 @@ const I18N = {
     opt_wind: 'Ветер', opt_humidity: 'Влажность', opt_none: 'Не показывать',
     f_outdoor_hum: 'Датчик влажности на улице (если без weather)',
     f_temp_helper: 'input_number для сохранения температуры (рекомендуется)',
-    f_timer_helper: 'Timer-помощник для таймера сна (рекомендуется)',
+    f_timer_helper: 'Timer-помощник для таймера ВЫКЛЮЧЕНИЯ (рекомендуется)',
+    f_timer_helper_on: 'Timer-помощник для отдельного таймера ВКЛЮЧЕНИЯ (необязательно)',
+    f_timer_off_enable: 'Input_boolean — переключатель "Таймер выключения активен"',
+    f_timer_on_enable: 'Input_boolean — переключатель "Таймер включения активен"',
     hint_helpers: 'temp_helper и timer_helper — это input_number/timer helper-ы Home Assistant. Без них карточка работает, но температура и таймер сбрасываются при перезагрузке вкладки.',
+    hint_timer_enable: 'Эти input_boolean необязательны. Если указать их, на карточке появятся переключатели для включения/выключения соответствующей автоматизации без её редактирования. Примеры автоматизаций — в README.',
     sec_main_buttons: 'Основные кнопки',
     f_btn_on: 'Кнопка ON',
     f_btn_off: 'Кнопка OFF',
@@ -417,6 +429,7 @@ class AirConditionerCard extends HTMLElement {
     this._initialized = false;
     this._timeTimer = null;
     this._timerStateObj = null;
+    this._timerOnStateObj = null;
     this._elCache = {};
     this._lastConfirmedPower = null;
     this._lastHassSig = null;
@@ -658,7 +671,7 @@ class AirConditionerCard extends HTMLElement {
     // work unless something we actually watch (or the config object) has
     // changed since the last call.
     const c = this.config;
-    const watched = [c.binary_sensor, c.room_temp_sensor, c.room_humidity_sensor, c.weather_entity, c.outdoor_temp_sensor, c.outdoor_humidity_sensor, c.timer_helper, c.temp_helper];
+    const watched = [c.binary_sensor, c.room_temp_sensor, c.room_humidity_sensor, c.weather_entity, c.outdoor_temp_sensor, c.outdoor_humidity_sensor, c.timer_helper, c.timer_helper_on, c.temp_helper, c.timer_off_enable_entity, c.timer_on_enable_entity];
     let sig = '';
     for (const id of watched) {
       if (!id) { sig += '|'; continue; }
@@ -706,7 +719,7 @@ class AirConditionerCard extends HTMLElement {
       }
     }
 
-    // --- server-side timer ---
+    // --- server-side timer (OFF) ---
     const prevTimerState = this._timerStateObj; // snapshot before we overwrite it below
     const timerId = this.config.timer_helper;
     const timerState = timerId ? hass.states[timerId] : null;
@@ -724,13 +737,27 @@ class AirConditionerCard extends HTMLElement {
       this._local.ha_timer_active_minutes = null;
     }
 
-    // Best-effort: if the sleep timer just finished naturally (was 'active',
+    // --- server-side timer (ON), optional, separate timer helper ---
+    const prevTimerOnState = this._timerOnStateObj;
+    const timerOnId = this.config.timer_helper_on;
+    const timerOnState = timerOnId ? hass.states[timerOnId] : null;
+    this._timerOnStateObj = timerOnState || null;
+
+    // --- enable/disable switches for the automations (input_boolean, optional) ---
+    const offEnableId = this.config.timer_off_enable_entity;
+    const onEnableId = this.config.timer_on_enable_entity;
+    this._local.timerOffEnabled = offEnableId ? hass.states[offEnableId]?.state === 'on' : null;
+    this._local.timerOnEnabled = onEnableId ? hass.states[onEnableId]?.state === 'on' : null;
+
+    // Best-effort: if the OFF timer just finished naturally (was 'active',
     // now isn't, and we actually reached its finish time rather than being
     // cancelled early), turn the AC off. This only works while this card
     // happens to be open in a browser tab — for a reliable turn-off
     // regardless of whether anyone's looking at a dashboard, add the
-    // timer.finished automation described in the README.
+    // timer.finished automation described in the README. Skipped entirely
+    // if the OFF-automation switch on the card was flipped off.
     if (
+      this._local.timerOffEnabled !== false &&
       prevTimerState && prevTimerState.state === 'active' &&
       timerState && timerState.state !== 'active' &&
       Date.now() >= new Date(prevTimerState.attributes.finishes_at).getTime() - 1500
@@ -738,6 +765,19 @@ class AirConditionerCard extends HTMLElement {
       this._local.power = false;
       this._local.mode2 = false;
       this._sendIR('off');
+    }
+
+    // Same best-effort mirror for the separate ON timer. As with the OFF
+    // timer, this only fires while the tab is open — the real, always-on
+    // behaviour lives in the timer.finished automation from the README.
+    if (
+      this._local.timerOnEnabled !== false &&
+      prevTimerOnState && prevTimerOnState.state === 'active' &&
+      timerOnState && timerOnState.state !== 'active' &&
+      Date.now() >= new Date(prevTimerOnState.attributes.finishes_at).getTime() - 1500
+    ) {
+      this._local.power = true;
+      this._sendIR('on');
     }
 
     if (this._lastConfirmedPower === null) this._lastConfirmedPower = isContactOpen;
@@ -840,6 +880,14 @@ class AirConditionerCard extends HTMLElement {
 
   _act(act) {
     const step = this.config.timer_step || 5;
+
+    if (act === 'toggle_timer_off_enable') {
+      if (this.config.timer_off_enable_entity) this._svc('input_boolean', 'toggle', this.config.timer_off_enable_entity);
+      return;
+    } else if (act === 'toggle_timer_on_enable') {
+      if (this.config.timer_on_enable_entity) this._svc('input_boolean', 'toggle', this.config.timer_on_enable_entity);
+      return;
+    }
 
     if (act === 'toggle_timer_edit') {
       if (!this.config.timer_helper) return;
@@ -1028,6 +1076,20 @@ class AirConditionerCard extends HTMLElement {
               <button class="btn btn-turbo" data-act="mode2" data-el="btn-turbo">${(c.mode2_name || 'TURBO').toUpperCase()}</button>
             </div>
           </div>
+
+          ${(c.timer_off_enable_entity || c.timer_on_enable_entity) ? `
+          <div class="auto-row">
+            ${c.timer_off_enable_entity ? `
+            <div class="auto-toggle" data-act="toggle_timer_off_enable" data-el="auto-off-toggle">
+              <span class="auto-toggle-label">${this._t('timer_off_word')}</span>
+              <span class="auto-toggle-switch" data-el="auto-off-switch"><span class="auto-toggle-knob"></span></span>
+            </div>` : ''}
+            ${c.timer_on_enable_entity ? `
+            <div class="auto-toggle" data-act="toggle_timer_on_enable" data-el="auto-on-toggle">
+              <span class="auto-toggle-label">${this._t('timer_on_word')}</span>
+              <span class="auto-toggle-switch" data-el="auto-on-switch"><span class="auto-toggle-knob"></span></span>
+            </div>` : ''}
+          </div>` : ''}
         </div>
       </div>
     `;
@@ -1096,6 +1158,11 @@ class AirConditionerCard extends HTMLElement {
     const centerGroupEl = this._el('center-group');
     if (centerGroupEl) centerGroupEl.classList.toggle('center-group--timer-mode', this._timerEditMode);
     this._el('btn-dyn-timer')?.classList.toggle('btn-dyn-timer--active', this._timerEditMode);
+
+    this._el('auto-off-switch')?.classList.toggle('auto-toggle-switch--on', !!this._local.timerOffEnabled);
+    this._el('auto-off-toggle')?.classList.toggle('auto-toggle--off', this._local.timerOffEnabled === false);
+    this._el('auto-on-switch')?.classList.toggle('auto-toggle-switch--on', !!this._local.timerOnEnabled);
+    this._el('auto-on-toggle')?.classList.toggle('auto-toggle--off', this._local.timerOnEnabled === false);
   }
 
   _css() { return `
@@ -1204,32 +1271,43 @@ class AirConditionerCard extends HTMLElement {
       width: min(10.5cqw, ${this.config.controls_height}); height: min(10.5cqw, ${this.config.controls_height}); border-radius: 50%;
       border: 0.15cqw solid rgba(255,255,255,0.1);
       cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative;
-      color: rgba(160,175,165,0.65); transition: transform 0.08s ease, box-shadow 0.18s ease, filter 0.18s ease;
+      color: rgba(160,175,165,0.65); transition: transform 0.09s cubic-bezier(0.4,0,0.2,1), box-shadow 0.16s ease, filter 0.16s ease;
       background:
-        radial-gradient(circle at 32% 26%, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 42%),
-        linear-gradient(145deg, rgba(58,63,73,0.95) 0%, rgba(34,37,44,0.97) 48%, rgba(18,20,24,0.98) 100%);
+        radial-gradient(circle at 30% 22%, rgba(255,255,255,0.22) 0%, rgba(255,255,255,0) 38%),
+        linear-gradient(145deg, rgba(68,74,86,0.97) 0%, rgba(40,44,52,0.98) 42%, rgba(16,18,22,0.99) 100%);
       box-shadow:
-        0 0.55cqw 0 rgba(0,0,0,0.55),
-        0 0.9cqw 2.2cqw rgba(0,0,0,0.45),
-        0 0.1cqw 0.15cqw rgba(255,255,255,0.05),
-        inset 0 0.22cqw 0 rgba(255,255,255,0.09),
-        inset 0 -0.2cqw 0.3cqw rgba(0,0,0,0.5),
-        inset 0 0 0 0.08cqw rgba(255,255,255,0.03);
+        /* socket the button sits in, recessed into the panel */
+        0 0 0 0.55cqw rgba(0,0,0,0.55),
+        0 0 0 0.62cqw rgba(255,255,255,0.04),
+        /* lift off the socket floor */
+        0 0.85cqw 0 -0.1cqw rgba(0,0,0,0.7),
+        0 1.3cqw 2.6cqw rgba(0,0,0,0.55),
+        /* cap bevel */
+        inset 0 0.28cqw 0 rgba(255,255,255,0.14),
+        inset 0 -0.32cqw 0.5cqw rgba(0,0,0,0.55),
+        inset 0 0 0 0.08cqw rgba(255,255,255,0.04);
+    }
+    .btn::before {
+      content: ''; position: absolute; inset: -0.55cqw; border-radius: 50%; pointer-events: none; z-index: -1;
+      background: radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 55%, rgba(0,0,0,0.35) 100%);
     }
     .btn::after {
       content: ''; position: absolute; inset: 0.35cqw; border-radius: 50%; pointer-events: none;
-      background: linear-gradient(160deg, rgba(255,255,255,0.06) 0%, transparent 32%, transparent 68%, rgba(0,0,0,0.12) 100%);
-      border: 0.06cqw solid rgba(255,255,255,0.04);
+      background: linear-gradient(160deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.02) 30%, transparent 55%, rgba(0,0,0,0.16) 100%);
+      border: 0.06cqw solid rgba(255,255,255,0.05);
     }
-    .btn svg { width: 4.5cqw; height: 4.5cqw; position: relative; z-index: 1; filter: drop-shadow(0 0.1cqw 0.15cqw rgba(0,0,0,0.4)); }
+    .btn svg { width: 4.5cqw; height: 4.5cqw; position: relative; z-index: 1; filter: drop-shadow(0 0.15cqw 0.2cqw rgba(0,0,0,0.5)); }
+    .btn:hover { filter: brightness(1.05); }
     .btn:active {
-      transform: translateY(0.4cqw) scale(0.96);
+      transform: translateY(0.72cqw) scale(0.965);
       box-shadow:
-        0 0.12cqw 0 rgba(0,0,0,0.6),
-        0 0.25cqw 0.7cqw rgba(0,0,0,0.5),
-        inset 0 0.35cqw 0.7cqw rgba(0,0,0,0.45),
+        0 0 0 0.55cqw rgba(0,0,0,0.6),
+        0 0 0 0.62cqw rgba(255,255,255,0.03),
+        0 0.15cqw 0 -0.1cqw rgba(0,0,0,0.7),
+        0 0.3cqw 0.8cqw rgba(0,0,0,0.5),
+        inset 0 0.4cqw 0.9cqw rgba(0,0,0,0.6),
         inset 0 -0.1cqw 0.15cqw rgba(255,255,255,0.03);
-      filter: brightness(0.94);
+      filter: brightness(0.92);
     }
     .btn-sm { width: 100%; height: 100%; }
     .btn--disabled { opacity: 0.25; pointer-events: none; filter: grayscale(0.5); }
@@ -1249,6 +1327,26 @@ class AirConditionerCard extends HTMLElement {
         0 0 3.4cqw rgba(34,152,217,0.55), 0 0 0.6cqw rgba(85,203,255,0.6),
         inset 0 0.22cqw 0 rgba(255,255,255,0.12), inset 0 0 0.4cqw rgba(60,170,230,0.2);
     }
+    .auto-row { display: flex; align-items: center; justify-content: center; gap: 3.5cqw; width: 100%; margin-top: 1.2cqw; }
+    .auto-toggle { display: flex; align-items: center; gap: 1cqw; cursor: pointer; user-select: none; }
+    .auto-toggle-label { font-size: 1.15cqw; font-weight: 800; letter-spacing: 0.12cqw; text-transform: uppercase; color: rgba(160,175,165,0.55); transition: color 0.18s ease; }
+    .auto-toggle:not(.auto-toggle--off) .auto-toggle-label { color: rgba(200,215,205,0.8); }
+    .auto-toggle-switch {
+      position: relative; display: inline-block; width: 6cqw; height: 3.1cqw; border-radius: 2cqw; flex-shrink: 0;
+      background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.35) 100%);
+      box-shadow: inset 0 0.3cqw 0.6cqw rgba(0,0,0,0.6), inset 0 -0.1cqw 0.2cqw rgba(255,255,255,0.05), 0 0.15cqw 0 rgba(255,255,255,0.04);
+      border: 1px solid rgba(0,0,0,0.6);
+      transition: background 0.2s ease, box-shadow 0.2s ease;
+    }
+    .auto-toggle-knob {
+      position: absolute; top: 50%; left: 0.35cqw; width: 2.5cqw; height: 2.5cqw; border-radius: 50%;
+      transform: translateY(-50%);
+      background: linear-gradient(160deg, #d0d5d2 0%, #b5bcb8 100%);
+      box-shadow: 0 0.25cqw 0.5cqw rgba(0,0,0,0.55), inset 0 0.1cqw 0 rgba(255,255,255,0.4);
+      transition: left 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .auto-toggle-switch--on { background: linear-gradient(180deg, rgba(23,150,130,0.55) 0%, rgba(15,95,82,0.55) 100%); box-shadow: inset 0 0.2cqw 0.4cqw rgba(0,0,0,0.4), 0 0 1.6cqw rgba(23,201,179,0.35); }
+    .auto-toggle-switch--on .auto-toggle-knob { left: calc(100% - 2.85cqw); background: linear-gradient(160deg, #a8ffef 0%, #6bf2dc 100%); box-shadow: 0 0.25cqw 0.5cqw rgba(0,0,0,0.5), 0 0 0.8cqw rgba(107,242,220,0.65), inset 0 0.1cqw 0 rgba(255,255,255,0.5); }
     .btn-timer { width: min(7.2cqw, ${this.config.controls_height}); height: min(7.2cqw, ${this.config.controls_height}); flex-shrink: 0; border-radius: 50%; font-size: 1.6cqw; font-weight: 900; border-color: rgba(16,125,115,0.4); color: rgba(50,180,165,0.6); background: linear-gradient(145deg, rgba(24,44,42,0.95) 0%, rgba(11,22,21,0.97) 100%); }
     .btn-timer--on {
       border-color: #17c9b3; color: #6bf2dc;
@@ -1530,10 +1628,18 @@ class AirConditionerCardEditor extends HTMLElement {
       panel.appendChild(this._entityField(this._t('f_outdoor_hum'), 'outdoor_humidity_sensor', 'sensor'));
       panel.appendChild(this._entityField(this._t('f_temp_helper'), 'temp_helper', 'input_number'));
       panel.appendChild(this._entityField(this._t('f_timer_helper'), 'timer_helper', 'timer'));
+      panel.appendChild(this._entityField(this._t('f_timer_helper_on'), 'timer_helper_on', 'timer'));
       const hint = document.createElement('div');
       hint.className = 'hint';
       hint.textContent = this._t('hint_helpers');
       panel.appendChild(hint);
+
+      panel.appendChild(this._entityField(this._t('f_timer_off_enable'), 'timer_off_enable_entity', 'input_boolean'));
+      panel.appendChild(this._entityField(this._t('f_timer_on_enable'), 'timer_on_enable_entity', 'input_boolean'));
+      const hint2 = document.createElement('div');
+      hint2.className = 'hint';
+      hint2.textContent = this._t('hint_timer_enable');
+      panel.appendChild(hint2);
     }
 
     if (this._tab === 'commands') {
