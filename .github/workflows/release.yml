@@ -52,8 +52,8 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           TAG="${{ steps.resolve.outputs.tag }}"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "::error::Tag $TAG already exists."
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            echo "::error::Tag $TAG already exists on remote."
             exit 1
           fi
           git config user.name "github-actions[bot]"
