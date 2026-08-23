@@ -117,6 +117,34 @@ setTimeout(() => {
   const handles = editor.querySelectorAll('.drag-handle');
   console.log('drag handles found:', handles.length);
   if (handles.length === 0) throw new Error('No drag handles built');
+
+  // --- 4. Regression test: repeated hass "ticks" (HA calls the hass setter
+  //     on virtually every state change anywhere in the system, many times
+  //     a second) must NOT tear down the editor DOM. Previously every tick
+  //     did a full innerHTML rebuild, which nuked the entity-picker's open
+  //     dropdown mid-keystroke and aborted in-progress Position-tab drags
+  //     by destroying the handle out from under the pointer. ---
+  editor.querySelector('.tab[data-tab="entities"]').click();
+  const pickerBefore = editor.querySelector('ha-entity-picker');
+  if (!pickerBefore) throw new Error('entity picker missing on entities tab');
+  for (let i = 0; i < 5; i++) {
+    editor.hass = { ...fakeHass, states: { ...fakeHass.states } }; // fresh object each simulated tick
+  }
+  if (editor.querySelector('ha-entity-picker') !== pickerBefore) {
+    throw new Error('hass tick rebuilt the DOM — entity picker identity changed (typing would lose focus/dropdown)');
+  }
+  console.log('hass-tick stability OK: entity picker survives repeated hass updates');
+
+  editor.querySelector('.tab[data-tab="position"]').click();
+  const handleBefore = editor.querySelector('.drag-handle');
+  for (let i = 0; i < 5; i++) {
+    editor.hass = { ...fakeHass, states: { ...fakeHass.states } };
+  }
+  if (editor.querySelector('.drag-handle') !== handleBefore) {
+    throw new Error('hass tick rebuilt the DOM — drag handle identity changed (an in-progress drag would abort)');
+  }
+  console.log('hass-tick stability OK: drag handle survives repeated hass updates');
+
   console.log('ALL SMOKE TESTS PASSED');
   process.exit(0);
 }, 50);

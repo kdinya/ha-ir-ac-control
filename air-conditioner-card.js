@@ -1,5 +1,5 @@
 /**
- * Air Conditioner Card (Universal IR Remote Edition) v1.2.0
+ * Air Conditioner Card (Universal IR Remote Edition) v1.2.1
  * https://github.com/kdinya/ha-ir-ac-control
  *
  * Universal Home Assistant Lovelace card for controlling an air conditioner
@@ -30,7 +30,7 @@
  * temperature is stored in an input_number helper for the same reason.
  */
 
-const CARD_VERSION = '1.2.0';
+const CARD_VERSION = '1.2.1';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // ---------------------------------------------------------------------------
@@ -1098,10 +1098,32 @@ class AirConditionerCardEditor extends HTMLElement {
     super();
     this._tab = 'entities';
     this._learning = null; // ключ поля, яке зараз навчається
+    this._domBuilt = false;
   }
 
   setConfig(config) { this._config = { ...config }; this._render(); }
-  set hass(hass) { this._hass = hass; this._render(); }
+
+  // NOTE: HA calls this setter on almost every state change anywhere in the
+  // whole system (not just entities this card cares about) — multiple times
+  // a second on a live instance. Previously this triggered a full
+  // this._render() every single time, which replaces this.innerHTML wholesale.
+  // That nuked the entity-picker's open dropdown mid-keystroke (impossible to
+  // type a name before it closed) and destroyed the Position tab's drag
+  // handle out from under the pointer mid-drag (the gesture aborted before
+  // pointerup could ever commit a value). Only do a full rebuild on the very
+  // first hass assignment (or if setConfig hasn't run a render yet); after
+  // that, just forward the fresh hass reference into the handful of child
+  // elements that actually need live data, without touching the DOM tree.
+  set hass(hass) {
+    this._hass = hass;
+    if (!this._domBuilt || !this._config) {
+      this._render();
+      return;
+    }
+    this.querySelectorAll('ha-entity-picker').forEach((el) => { el.hass = hass; });
+    const liveCard = this.querySelector('.drag-canvas-wrap > *');
+    if (liveCard) liveCard.hass = hass;
+  }
 
   _t(key) { return translate(this._config?.lang, key); }
 
@@ -1189,6 +1211,7 @@ class AirConditionerCardEditor extends HTMLElement {
 
   _render() {
     if (!this._hass || !this._config) return;
+    this._domBuilt = true;
 
     const c = this._config;
     const tempMin = Number(c.temp_min ?? 16);
@@ -1414,9 +1437,14 @@ class AirConditionerCardEditor extends HTMLElement {
     });
 
     // Rebuild the handles when the container resizes (e.g. the tab was opened in another window).
+    // Disconnect any observer from a previous render first — full re-renders
+    // are now rare (only on setConfig, not on every hass tick) but each one
+    // still creates a brand new wrap/liveCard, so the old observer would
+    // otherwise be left dangling on a detached node.
+    if (this._dragResizeObserver) { this._dragResizeObserver.disconnect(); this._dragResizeObserver = null; }
     if (window.ResizeObserver) {
-      const ro = new ResizeObserver(() => this._positionDragHandles(wrap, liveCard));
-      ro.observe(wrap);
+      this._dragResizeObserver = new ResizeObserver(() => this._positionDragHandles(wrap, liveCard));
+      this._dragResizeObserver.observe(wrap);
     }
 
     return wrap;
