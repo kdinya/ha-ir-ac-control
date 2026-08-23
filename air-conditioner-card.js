@@ -24,7 +24,7 @@
  * with any other Lovelace resource loaded on the same dashboard.
  */
 (function () {
-const CARD_VERSION = '1.4.0';
+const CARD_VERSION = '1.5.0';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // List of screen elements whose position/size can be adjusted in the editor.
