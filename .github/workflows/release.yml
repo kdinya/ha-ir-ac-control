@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 1.5.0, no leading v)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -15,21 +21,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify CARD_VERSION matches tag
+      - name: Resolve version and tag
+        id: resolve
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            TAG="v$VERSION"
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Verify CARD_VERSION matches
+        run: |
           FILE_VERSION=$(grep -oP "CARD_VERSION = '\K[^']+" air-conditioner-card.js)
-          if [ "$TAG_VERSION" != "$FILE_VERSION" ]; then
-            echo "::error::Tag is v$TAG_VERSION but CARD_VERSION in air-conditioner-card.js is $FILE_VERSION"
+          if [ "${{ steps.resolve.outputs.version }}" != "$FILE_VERSION" ]; then
+            echo "::error::Requested version ${{ steps.resolve.outputs.version }} but CARD_VERSION in air-conditioner-card.js is $FILE_VERSION. Update the file first."
             exit 1
           fi
-          echo "Version check passed: $TAG_VERSION"
+          echo "Version check passed: $FILE_VERSION"
+
+      - name: Create tag (manual trigger only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          TAG="${{ steps.resolve.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.resolve.outputs.tag }}
           files: air-conditioner-card.js
           generate_release_notes: true
-          name: ${{ github.ref_name }}
+          name: ${{ steps.resolve.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
