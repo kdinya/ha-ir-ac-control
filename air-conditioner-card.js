@@ -1,5 +1,5 @@
 /**
- * Air Conditioner Card (Universal IR Remote Edition) v1.1.2
+ * Air Conditioner Card (Universal IR Remote Edition) v1.2.0
  * https://github.com/kdinya/ha-ir-ac-control
  *
  * Universal Home Assistant Lovelace card for controlling an air conditioner
@@ -30,7 +30,7 @@
  * temperature is stored in an input_number helper for the same reason.
  */
 
-const CARD_VERSION = '1.1.2';
+const CARD_VERSION = '1.2.0';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // ---------------------------------------------------------------------------
@@ -1042,7 +1042,7 @@ class AirConditionerCard extends HTMLElement {
   `; }
 
   getCardSize() { return 3; }
-  static getConfigElement() { return document.createElement('air-conditioner-card-editor'); }
+  static getConfigElement() { return document.createElement('ha-ir-ac-control-card-editor'); }
   static getStubConfig() { return { remote_entity: '', device: '', room_temp_sensor: '' }; }
 }
 AirConditionerCard.VERSION = CARD_VERSION;
@@ -1057,12 +1057,21 @@ AirConditionerCard.VERSION = CARD_VERSION;
 // rest of the file still runs; a genuine full browser reload is still
 // required to actually pick up new class code (browsers cannot redefine an
 // existing custom element tag within the same page session).
-if (!customElements.get('air-conditioner-card')) {
-  customElements.define('air-conditioner-card', AirConditionerCard);
+// Tag renamed to `ha-ir-ac-control-card` (was `air-conditioner-card` through v1.1.2).
+// Reason: `air-conditioner-card` is a generic name that collides with unrelated local/
+// legacy custom cards using the same tag. Custom element tags are global per browser
+// tab and cannot be redefined once taken — if some *other* script grabs that tag first,
+// this card silently loses the registration race and `type: custom:air-conditioner-card`
+// in your dashboard renders whatever won, not necessarily this file. Renaming to a
+// namespaced tag makes that collision effectively impossible.
+// Existing dashboards must update `type: custom:air-conditioner-card` to
+// `type: custom:ha-ir-ac-control-card` — see README "Upgrading to v1.2.0".
+if (!customElements.get('ha-ir-ac-control-card')) {
+  customElements.define('ha-ir-ac-control-card', AirConditionerCard);
 } else {
   console.warn(
     `%c AIR-CONDITIONER-CARD %c STALE TAB — v${CARD_VERSION} was just loaded from disk, but this ` +
-    `browser tab already has an OLDER "air-conditioner-card" class registered and JS cannot ` +
+    `browser tab already has an OLDER "ha-ir-ac-control-card" class registered and JS cannot ` +
     `replace it without a real page reload. The console banner above always logs the file's ` +
     `version, even when the active class is old — it is NOT proof the new code is running. ` +
     `Close this tab completely (or hard-reload with cache disabled / open a private window) ` +
@@ -1072,9 +1081,9 @@ if (!customElements.get('air-conditioner-card')) {
 }
 
 window.customCards = window.customCards || [];
-if (!window.customCards.some((c) => c.type === 'air-conditioner-card')) {
+if (!window.customCards.some((c) => c.type === 'ha-ir-ac-control-card')) {
   window.customCards.push({
-    type: 'air-conditioner-card',
+    type: 'ha-ir-ac-control-card',
     name: 'Air Conditioner Card (IR Remote)',
     description: 'Universal Lovelace card to control an air conditioner via any Home Assistant IR remote entity (Broadlink, Xiaomi, ESPHome, etc.), with in-editor IR code learning.',
     preview: false,
@@ -1211,7 +1220,7 @@ class AirConditionerCardEditor extends HTMLElement {
         .stepper button { width: 22px; height: 22px; line-height: 1; border-radius: 5px; border: 1px solid var(--divider-color, #ccc); background: var(--card-background-color, #fff); color: var(--primary-text-color, #000); cursor: pointer; font-size: 0.9em; }
         .stepper span { font-size: 0.78em; width: 30px; text-align: center; opacity: 0.8; }
         .drag-canvas-wrap { position: relative; width: 100%; margin-bottom: 14px; border-radius: 10px; background: var(--secondary-background-color, #222); }
-        .drag-canvas-wrap air-conditioner-card { display: block; pointer-events: none; }
+        .drag-canvas-wrap ha-ir-ac-control-card { display: block; pointer-events: none; }
         .drag-handle { position: absolute; border: 1.5px dashed rgba(3,169,244,0.9); border-radius: 6px; background: rgba(3,169,244,0.12); cursor: grab; touch-action: none; box-sizing: border-box; }
         .drag-handle:hover, .drag-handle.dragging { background: rgba(3,169,244,0.28); border-color: #03a9f4; }
         .drag-handle .handle-label { position: absolute; top: -1.4em; left: 0; font-size: 10px; white-space: nowrap; background: rgba(3,169,244,0.95); color: #fff; padding: 1px 5px; border-radius: 4px; pointer-events: none; }
@@ -1382,7 +1391,7 @@ class AirConditionerCardEditor extends HTMLElement {
     const wrap = document.createElement('div');
     wrap.className = 'drag-canvas-wrap';
 
-    const liveCard = document.createElement('air-conditioner-card');
+    const liveCard = document.createElement('ha-ir-ac-control-card');
     wrap.appendChild(liveCard);
 
     const previewConfig = {
@@ -1607,8 +1616,8 @@ class AirConditionerCardEditor extends HTMLElement {
   }
 }
 AirConditionerCardEditor.VERSION = CARD_VERSION;
-if (!customElements.get('air-conditioner-card-editor')) {
-  customElements.define('air-conditioner-card-editor', AirConditionerCardEditor);
+if (!customElements.get('ha-ir-ac-control-card-editor')) {
+  customElements.define('ha-ir-ac-control-card-editor', AirConditionerCardEditor);
 } else {
   console.warn(
     `AIR-CONDITIONER-CARD: STALE TAB — the visual EDITOR class is still the old one from before ` +

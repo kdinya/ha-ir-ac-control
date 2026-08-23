@@ -25,7 +25,7 @@ try {
 } catch (e) {
   throw new Error('Double-load of the resource threw: ' + e.message);
 }
-if (window.customCards.filter((c) => c.type === 'air-conditioner-card').length !== 1) {
+if (window.customCards.filter((c) => c.type === 'ha-ir-ac-control-card').length !== 1) {
   throw new Error('window.customCards got duplicated on double-load');
 }
 console.log('customCards duplicate-guard OK');
@@ -42,7 +42,7 @@ const fakeHass = {
 
 // --- 1. Card renders without throwing, in each language ---
 for (const lang of ['uk', 'en', 'ru']) {
-  const card = document.createElement('air-conditioner-card');
+  const card = document.createElement('ha-ir-ac-control-card');
   card.setConfig({
     remote_entity: 'remote.broadlink',
     room_temp_sensor: 'sensor.room_temp',
@@ -69,7 +69,7 @@ dom.window.Element.prototype.getBoundingClientRect = function () {
   return { left: 10 + (rectCounter % 5) * 20, top: 10 + (rectCounter % 3) * 15, width: 40, height: 20, right: 0, bottom: 0 };
 };
 
-const editor = document.createElement('air-conditioner-card-editor');
+const editor = document.createElement('ha-ir-ac-control-card-editor');
 let currentConfig = { remote_entity: 'remote.broadlink', room_temp_sensor: 'sensor.room_temp' };
 editor.addEventListener('config-changed', (e) => {
   currentConfig = e.detail.config;
@@ -105,10 +105,10 @@ if (learnButtons.length < 5) throw new Error('Expected multiple "Learn" buttons 
 console.log('learn buttons found:', learnButtons.length);
 
 // version exposed on the class, used by users to verify the *active* class version
-if (customElements.get('air-conditioner-card-editor').VERSION !== customElements.get('air-conditioner-card').VERSION) {
+if (customElements.get('ha-ir-ac-control-card-editor').VERSION !== customElements.get('ha-ir-ac-control-card').VERSION) {
   throw new Error('Card/editor VERSION mismatch');
 }
-console.log('active class VERSION:', customElements.get('air-conditioner-card-editor').VERSION);
+console.log('active class VERSION:', customElements.get('ha-ir-ac-control-card-editor').VERSION);
 
 // switch to position tab and check drag handles built
 const posTab = editor.querySelector('.tab[data-tab="position"]');

@@ -48,7 +48,7 @@ positioned/styled).
 
 ## Updating — how to actually get new code into the editor
 
-Custom elements (`air-conditioner-card`, `air-conditioner-card-editor`) can
+Custom elements (`ha-ir-ac-control-card`, `ha-ir-ac-control-card-editor`) can
 only be registered **once per browser tab session**, and browsers cannot
 redefine an already-registered tag. This causes a confusing situation: the
 console banner logs the *file's* version on every load, even when the
@@ -64,7 +64,7 @@ version, work through this checklist in order:
    showing.
 2. **Check the real active class version** in the browser console (F12):
    ```js
-   customElements.get('air-conditioner-card-editor')?.VERSION
+   customElements.get('ha-ir-ac-control-card-editor')?.VERSION
    ```
    This reads the version off the class object itself — if it's older than
    what's on GitHub, this exact browser tab is running stale code no matter
@@ -126,10 +126,41 @@ Place the seven-segment `.woff` file at the path set in `font_path`
 (default `/local/community/ha-ir-ac-control/fonts/7segment.woff`), or change
 the path on the "Appearance" tab.
 
+## Upgrading to v1.2.0 — the card type name changed
+
+The custom element tag (and therefore the `type:` you put in a dashboard's
+YAML) changed from `air-conditioner-card` to **`ha-ir-ac-control-card`**.
+
+Why: `air-conditioner-card` was a generic name. Custom element tags are
+registered globally per browser tab and can never be redefined once taken —
+if *any other* resource on your HA instance (an old local copy of this card
+from before it lived in this repo, a fork, anything) also defines a tag
+called `air-conditioner-card`, whichever one loads first in that tab wins
+the registration permanently for that session, silently, with no error.
+`type: custom:air-conditioner-card` then renders whatever won that race —
+not necessarily this file — no matter how many times you reinstall or
+update via HACS. This is why new editor tabs/fields can look like they never
+made it into the visual editor even on a fresh install. The namespaced tag
+`ha-ir-ac-control-card` makes that collision effectively impossible.
+
+**To upgrade:**
+1. Update HACS to v1.2.0+.
+2. Edit every card that says `type: custom:air-conditioner-card` (YAML mode
+   of the card, or Settings → Dashboards → edit dashboard → YAML) and change
+   it to `type: custom:ha-ir-ac-control-card`.
+3. **Remove any old/legacy `air-conditioner-card.js` resource** you may
+   still have under Settings → Dashboards → Resources from before this
+   project existed as its own repo — it's no longer needed and, since it's
+   what caused the tag collision in the first place, leaving it in place
+   defeats the purpose of the rename if it also gets renamed and re-added
+   later.
+4. Hard-reload / open a private window (see "Updating" above) so the
+   browser tab picks up the new tag cleanly.
+
 ## Configuration example
 
 ```yaml
-type: custom:air-conditioner-card
+type: custom:ha-ir-ac-control-card
 lang: en
 remote_entity: remote.broadlink
 device: air_conditioner
