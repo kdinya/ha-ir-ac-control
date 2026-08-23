@@ -4,8 +4,8 @@ Universal Home Assistant Lovelace card for controlling an air conditioner
 via any `remote` entity that supports `remote.send_command` /
 `remote.learn_command` — Broadlink, Xiaomi, ESPHome remote, etc.
 Seven-segment display look: large temperature, clock, room/outdoor sensors,
-ON/OFF, a second mode button (TURBO/ECO/custom name), 4 timer presets + a
-manual timer with a configurable step, +/- temperature buttons.
+ON/OFF, a second mode button (TURBO/ECO/custom name), 4 timer presets, and a
+manual timer with a configurable step.
 
 All entities are optional except the IR remote itself (needed only to
 actually send commands — without it the card still renders and can be
@@ -19,14 +19,14 @@ positioned/styled).
   `remote.learn_command`, waits for a signal from your physical remote
   (up to ~15s) and fills the field automatically.
 - **Multilingual interface** (Ukrainian / English / Russian) — a language
-  switcher at the top of the editor, above the tabs. Translation applies
-  immediately, both in the editor and on the card itself (timer labels,
-  units, etc.). This does not affect this README, which is English-only.
+  switcher at the top of the editor. Translation applies immediately, both
+  in the editor and on the card itself.
+- **Built-in seven-segment font** — works out of the box, no separate font
+  file to install. You can upload your own font (`.ttf`/`.otf`/`.woff`/
+  `.woff2`) on the "Appearance" tab if you'd rather use a different one.
 - **Drag elements with mouse/touch** on the "Position" tab: a live card
-  preview with handles over every element — drag to move it in real time.
-  Numeric X/Y sliders remain next to it as a precise fallback.
-- **Resize elements** with "−/+" buttons right on the element's handle (or
-  in the list below) — from 40% to 300% of the base size.
+  preview with handles over every element — drag to move it, use the
+  "−/+" buttons (or the sliders below the preview) to resize it.
 - Server-side `timer.*` and `input_number.*` helpers — temperature and the
   sleep timer survive a browser tab reload (nothing is stored locally).
 - Optional contact/power sensor — the card detects the AC is running and
@@ -46,56 +46,26 @@ positioned/styled).
 2. Add a resource: Settings → Dashboards → Resources →
    `/local/ha-ir-ac-control/air-conditioner-card.js`, type **JavaScript Module**.
 
-## Updating — how to actually get new code into the editor
+## Setting it up
 
-Custom elements (`ha-ir-ac-control-card`, `ha-ir-ac-control-card-editor`) can
-only be registered **once per browser tab session**, and browsers cannot
-redefine an already-registered tag. This causes a confusing situation: the
-console banner logs the *file's* version on every load, even when the
-*active class* is stuck on an older one — **the banner alone is not proof
-the new editor is running.**
+Add the card, then open its visual editor:
 
-If the editor is missing tabs/fields you know were added in a newer
-version, work through this checklist in order:
-
-1. **Confirm HACS actually downloaded the new version**, not just listed it
-   as available. Open HACS → the repository → make sure the "Update"/
-   redownload action was clicked, not merely that a new version badge is
-   showing.
-2. **Check the real active class version** in the browser console (F12):
-   ```js
-   customElements.get('ha-ir-ac-control-card-editor')?.VERSION
-   ```
-   This reads the version off the class object itself — if it's older than
-   what's on GitHub, this exact browser tab is running stale code no matter
-   what any version banner says.
-3. **Open the dashboard in a brand-new private/incognito window.** This is
-   the single most reliable test: a private window has no custom-element
-   registry history and no HTTP cache, so it will show you the true,
-   currently-served code. If it looks correct there but not in your normal
-   tab/window, the problem is 100% local caching, not the card.
-4. **Close every tab pointed at this Home Assistant instance**, then open a
-   fresh one. A same-tab reload (even a hard one) usually works, but if
-   Home Assistant's service worker or an intermediate CDN (HACS-installed
-   resources are commonly served through jsDelivr, which can cache a
-   release for a while) is still serving an old file, only a from-scratch
-   navigation reliably breaks that chain.
-5. If it's still stale after all of that, open DevTools → Sources, find
-   `air-conditioner-card.js`, and search its contents for a string that
-   only exists in the new version (e.g. `lang-bar`) — this tells you
-   definitively whether the *served bytes* are new (and the problem is the
-   customElements registry / needs a fresher tab) or old (and the problem
-   is upstream caching, e.g. jsDelivr/HACS not having pulled the release
-   yet — try again in a few minutes or re-add the custom repository).
-
-As of v1.1.1 the resource guards against the "already defined" hard crash
-that a resource reload without a full page reload used to cause (previously
-it silently aborted the whole script partway through parsing, which is why
-the editor could look completely unchanged after an update — the editor
-class is registered near the end of the file and never got reached). That
-crash is fixed, but the underlying browser limitation — one registration
-per tab — is not something a script can work around; steps 3–4 above are
-the real fix when you hit it.
+1. **Entities** — pick your IR remote (required), plus any optional
+   sensors/helpers you have (room temperature/humidity, weather, contact
+   sensor, `input_number`/`timer` helpers — see below).
+2. **Buttons & IR codes** — set labels/codes for ON, OFF, the second mode
+   (e.g. TURBO), and one code per temperature in your min/max range. Press
+   "📡 Learn" next to a field, then press the matching button on your
+   physical remote — the code fills in automatically. The +/- buttons on
+   the card don't need their own codes: they always send the code for the
+   temperature you land on after pressing them.
+3. **Timers** — 4 quick presets (in minutes) and the step size for the
+   manual timer.
+4. **Position** — drag any element on the preview to reposition it, use
+   "−/+" (on the handle, or in the list below the preview) to resize it,
+   or type exact values into the sliders.
+5. **Appearance** — card aspect ratio, button-panel height, and the
+   seven-segment font (built-in by default; upload your own if you like).
 
 ## Recommended helpers
 
@@ -120,43 +90,6 @@ Pick them on the editor's **Entities** tab (`temp_helper`, `timer_helper`).
 Without them the card still works, but temperature/timer reset on a browser
 tab reload.
 
-## Seg7 font
-
-Place the seven-segment `.woff` file at the path set in `font_path`
-(default `/local/community/ha-ir-ac-control/fonts/7segment.woff`), or change
-the path on the "Appearance" tab.
-
-## Upgrading to v1.2.0 — the card type name changed
-
-The custom element tag (and therefore the `type:` you put in a dashboard's
-YAML) changed from `air-conditioner-card` to **`ha-ir-ac-control-card`**.
-
-Why: `air-conditioner-card` was a generic name. Custom element tags are
-registered globally per browser tab and can never be redefined once taken —
-if *any other* resource on your HA instance (an old local copy of this card
-from before it lived in this repo, a fork, anything) also defines a tag
-called `air-conditioner-card`, whichever one loads first in that tab wins
-the registration permanently for that session, silently, with no error.
-`type: custom:air-conditioner-card` then renders whatever won that race —
-not necessarily this file — no matter how many times you reinstall or
-update via HACS. This is why new editor tabs/fields can look like they never
-made it into the visual editor even on a fresh install. The namespaced tag
-`ha-ir-ac-control-card` makes that collision effectively impossible.
-
-**To upgrade:**
-1. Update HACS to v1.2.0+.
-2. Edit every card that says `type: custom:air-conditioner-card` (YAML mode
-   of the card, or Settings → Dashboards → edit dashboard → YAML) and change
-   it to `type: custom:ha-ir-ac-control-card`.
-3. **Remove any old/legacy `air-conditioner-card.js` resource** you may
-   still have under Settings → Dashboards → Resources from before this
-   project existed as its own repo — it's no longer needed and, since it's
-   what caused the tag collision in the first place, leaving it in place
-   defeats the purpose of the rename if it also gets renamed and re-added
-   later.
-4. Hard-reload / open a private window (see "Updating" above) so the
-   browser tab picks up the new tag cleanly.
-
 ## Configuration example
 
 ```yaml
@@ -175,7 +108,6 @@ default_temp: 24
 temp_min: 16
 temp_max: 30
 mode2_name: TURBO
-mode2_temp: 24
 timer_presets: [30, 60, 90, 120]
 timer_step: 5
 aspect_ratio: 1.72/1
@@ -191,6 +123,27 @@ commands:
 `lang` accepts `uk`, `en`, or `ru` and controls the language of both the
 editor UI and the on-card text; it can also be changed live from the
 language switcher in the editor.
+
+`commands` keys `'16'`–`'30'` (etc., matching your `temp_min`/`temp_max`)
+hold the IR code sent for each temperature — these are also what the +/-
+buttons send, so there's no separate plus/minus code to configure.
+
+## Updating
+
+Custom element tags (`ha-ir-ac-control-card`, `ha-ir-ac-control-card-editor`)
+can only be registered once per browser tab, and browsers cannot redefine
+an already-registered tag. If the editor looks like it's missing something
+you know was added in a newer version:
+
+1. Confirm HACS actually redownloaded the update (not just shows a badge).
+2. Check `customElements.get('ha-ir-ac-control-card-editor')?.VERSION` in
+   the browser console (F12) — if it's older than what's on GitHub, this
+   tab is running stale code.
+3. Open the dashboard in a fresh private/incognito window — the single most
+   reliable way to confirm you're looking at the current code.
+4. If it's still stale, close every tab pointed at this Home Assistant
+   instance and open a new one (resources served through jsDelivr can also
+   take a few minutes to pick up a new release).
 
 ## Testing
 
