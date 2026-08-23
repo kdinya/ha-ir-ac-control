@@ -54,13 +54,24 @@ will fail without it.
   backgrounded, or the card is removed from the dashboard (via
   `IntersectionObserver` / `visibilitychange` / `disconnectedCallback`).
 - Server-side `timer.*` and `input_number.*` helpers — temperature and the
-  sleep timer survive a browser tab reload (nothing is stored locally).
+  sleep timer countdown survive a browser tab reload (nothing is stored
+  locally). Turning the AC off/on when a timer finishes is handled by your
+  own Home Assistant automation, not the card — see "Automations for
+  reliable timer-based on/off" below.
 - Optional contact/power sensor — the card detects the AC is running and
   shows matching icons/animations on its own.
 - **Screen brightness slider** on the "Appearance" tab (20–150%) for the
   digital-clock display.
-- **Premium-device button styling** — layered metallic gradients, a bevel
-  highlight, and a real "press" effect on every button.
+- **Premium-device button styling** — layered metallic gradients, a deep
+  bevel, and a real "press" effect on every button. The "active" glow
+  (power on, TURBO on, an active timer preset) lights up from *inside*
+  each button rather than as a halo around it, so it always stays a clean
+  circle no matter how tightly the button panel is packed.
+- An empty timer preset (leave one of the 4 fields blank) makes its
+  button dim and inactive on the panel instead of silently doing nothing
+  when pressed.
+- Every "learn" button shows both the icon and the word "Learn" (not just
+  an icon) — consistent across every code field on the card.
 - Lightweight on the frontend — the card skips all re-render work on `hass`
   updates that don't touch any entity it actually watches (Home Assistant
   calls every card's `hass` setter on nearly every state change system-wide,
@@ -98,7 +109,8 @@ Add the card, then open its visual editor:
    the card don't need their own codes: they always send the code for the
    temperature you land on after pressing them.
 3. **Timers** — 4 quick presets (in minutes) and the step size for the
-   manual timer.
+   manual timer. Leave a preset field empty to disable that button on the
+   panel (it shows dimmed instead of doing nothing when pressed).
 4. **Position** — drag any element on the preview to reposition it, use
    "−/+" (on the handle, or in the list below the preview) to resize it,
    or type exact values into the sliders.
@@ -136,27 +148,28 @@ tab reload.
   a backend integration), so there's nothing running "in the background"
   for the temperature to interact with. Without the helper it just falls
   back to `default_temp` on every fresh page load.
-- **Timer (`timer.*`)** — yes, if you want the sleep timer to reliably
-  finish and turn the AC off when **nobody has the dashboard open**. The
-  card itself can only react to a timer finishing while it's actually
-  mounted in an open browser tab — closing the tab doesn't cancel the HA
-  timer (it keeps counting down server-side), but nothing will send the
-  IR command when it reaches zero unless something server-side does it.
-  For that, add one or two small automations (see below).
+- **Timer (`timer.*`)** — yes, if you want a countdown/preset UI on the
+  card at all (`timer_helper` is what the countdown clock and T30/T60/etc.
+  buttons talk to), and yes if you want the AC to actually turn off when
+  it finishes — the card itself never sends that command; see
+  "Automations for reliable timer-based on/off" below.
 
 ## Automations for reliable timer-based on/off
 
-The card's own best-effort turn on/off (see Changelog) only fires while a
-browser tab with the card actually open is watching the timer. For it to
-work with **zero browser involvement** — dashboard closed, phone asleep,
-nobody home — the real logic has to live in a Home Assistant automation
-that reacts to the `timer.finished` event server-side. This is the
-reliable path and costs no extra resources either way: an idle automation
-waiting on an event uses no polling and no CPU between triggers.
+The card itself never sends an IR command when a timer finishes — that's
+entirely your Home Assistant automation's job, triggered by the
+`timer.finished` event. This is deliberate: an idle automation waiting on
+an event uses no polling and no CPU between triggers, and it works with
+**zero browser involvement** — dashboard closed, phone asleep, nobody
+home — which a browser-side JS card could never guarantee on its own.
 
-Two independent timer helpers are supported: one dedicated to turning the
-AC **off** (`timer_helper`) and, optionally, a second one dedicated to
-turning it **on** (`timer_helper_on`). Each can drive its own automation.
+The card only shows and drives **one** timer helper (`timer_helper`) — the
+countdown clock and the T30/T60/etc. preset buttons on the card face all
+talk to that single entity. If you also want a separate schedule for
+turning the AC **on** (a "wake-up timer"), create a second, independent
+`timer.*` helper and a second automation for it — the card doesn't need to
+know it exists at all, since it only reacts to your automation's IR
+command, not to the timer directly.
 
 ```yaml
 timer:
@@ -166,40 +179,22 @@ timer:
     name: Climate control — wake-up timer
 
 automation:
-  - alias: "Climate control: sleep timer — toggle by contact state"
-    description: >-
-      When the sleep timer finishes, checks the window/contact sensor and
-      switches the AC to the opposite state — off if the window is open,
-      on otherwise. Adjust the branches if you just want a plain "always
-      off" behavior instead.
+  - alias: "Climate control: turn off when sleep timer finishes"
     triggers:
       - trigger: event
         event_type: timer.finished
         event_data:
           entity_id: timer.climate_sleep_timer
     actions:
-      - if:
-          - condition: state
-            entity_id: binary_sensor.climate_window_contact
-            state: "on"
-        then:
-          - action: remote.send_command
-            target:
-              entity_id: remote.climate_ir_blaster
-            data:
-              device: climate.air_conditioner
-              command: "off"
-        else:
-          - action: remote.send_command
-            target:
-              entity_id: remote.climate_ir_blaster
-            data:
-              device: climate.air_conditioner
-              command: "on"
+      - action: remote.send_command
+        target:
+          entity_id: remote.climate_ir_blaster
+        data:
+          device: climate.air_conditioner
+          command: "off"
     mode: single
 
   - alias: "Climate control: turn on when wake-up timer finishes"
-    description: Turns the AC on when the wake-up timer finishes.
     triggers:
       - trigger: event
         event_type: timer.finished
@@ -215,32 +210,16 @@ automation:
     mode: single
 ```
 
-On the card, pick these entities on the **Entities** tab:
+On the card, pick the sleep timer on the **Entities** tab:
 
-| Config key                  | Points to                          | What it does                                                        |
-|------------------------------|-------------------------------------|-----------------------------------------------------------------------|
-| `timer_helper`               | `timer.climate_sleep_timer`         | The OFF timer — countdown shown on the card, T30/T60/etc. buttons.   |
-| `timer_helper_on`            | `timer.climate_wakeup_timer`        | An independent ON timer (optional; leave empty if you don't need one).|
+| Config key    | Points to                    | What it does                                                      |
+|---------------|-------------------------------|---------------------------------------------------------------------|
+| `timer_helper`| `timer.climate_sleep_timer`   | Countdown shown on the card, and what the T30/T60/etc. buttons start/cancel. |
 
-### Card-only ON/OFF toggle switches
-
-As soon as `timer_helper` and/or `timer_helper_on` are set, the card
-automatically shows small "OFF"/"ON" toggle switches under the button
-panel — no extra config, no `input_boolean` or any other helper entity to
-create. Flipping a switch off tells **the card itself** to stop sending the
-IR command when that timer finishes; flipping it on (the default) lets it
-keep doing so. The state lives in that browser's `localStorage`, so it's
-per-device and doesn't require anything in Home Assistant.
-
-This is entirely independent from the `timer.finished` automations above —
-the automation isn't aware of the card's switch and keeps firing regardless
-of it. That's intentional: it lets you run the schedule from the
-automation only, from the card only, or from both at once (in which case
-the IR command just gets sent twice, which is harmless for most AC remotes
-but worth avoiding if you'd rather pick one). If you want the automation
-itself to be toggleable too, add your own `input_boolean` and a
-`conditions:` block referencing it — that's a normal Home Assistant
-automation concern, unrelated to the card.
+The wake-up timer in the example above is intentionally **not** a card
+config field — it's plain Home Assistant infrastructure the automation
+uses directly, so the card stays out of the way of a schedule it doesn't
+display.
 
 ## Configuration example
 
@@ -311,6 +290,25 @@ npm test
 
 ## Changelog highlights
 
+- **1.7.2** — Removed the separate ON-timer helper (`timer_helper_on`) and
+  all card-side "send a command when a timer finishes" behavior added in
+  1.7.0/1.7.1 (the ON/OFF toggle switches, the `localStorage`-backed
+  enable/disable prefs, the best-effort fallback). The card now only
+  displays/drives a single `timer_helper` and never sends IR commands on
+  its own when a timer finishes — that's exclusively the job of a
+  `timer.finished` automation now (see "Automations for reliable
+  timer-based on/off"), which is both simpler and the only approach that
+  ever worked reliably with the dashboard closed anyway. Every "learn"
+  button now shows the word "Learn" next to the icon (previously only
+  some fields did, others were icon-only). An empty timer preset (Timers
+  tab) now shows as a dimmed, disabled button on the panel instead of a
+  live button that silently did nothing when pressed. Reworked button
+  styling: buttons sit deeper/more physically in their sockets, and the
+  "on" glow (power/TURBO/active timer preset) is now an inset glow from
+  inside the button instead of an outer halo — the halo could get visibly
+  clipped into a squared-off patch by the button row's
+  `overflow: hidden`, and on touchscreens the browser's own default tap
+  highlight (a translucent rectangle) made it worse; both are fixed.
 - **1.7.1** — The ON/OFF timer toggle switches no longer need
   `input_boolean` helpers: they're now a pure card feature (state kept in
   the browser's `localStorage`), so nothing needs to be created in Home

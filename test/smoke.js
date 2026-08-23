@@ -120,6 +120,39 @@ const learnButtons = editor.querySelectorAll('.learn-btn');
 if (learnButtons.length < 5) throw new Error('Expected multiple "Learn" buttons on commands tab, found ' + learnButtons.length);
 console.log('learn buttons found:', learnButtons.length);
 
+// Regression: every learn button must show text, not just an icon — the
+// per-temperature rows used to be icon-only ('📡') while every other
+// learn button showed '📡 Learn'/'📡 Навчити' etc.
+for (const btn of learnButtons) {
+  if (!btn.textContent.trim() || btn.textContent.trim().length < 3) {
+    throw new Error(`A learn button is icon-only (no visible label): "${btn.textContent}"`);
+  }
+}
+console.log('learn-button labels OK: every learn button shows text, not just an icon');
+
+// Regression: the separate ON-timer helper field must be gone entirely.
+editor.querySelector('.tab[data-tab="entities"]').click();
+if (editor.innerHTML.includes('timer_helper_on')) {
+  throw new Error('timer_helper_on field still present in the editor — should have been removed');
+}
+console.log('timer_helper_on removal OK: no trace of the field in the entities tab');
+
+// Regression: an empty (0) timer preset must render as a dimmed, disabled
+// button on the card, not a live button that silently no-ops when pressed.
+const presetTestCard = document.createElement('ha-ir-ac-control-card');
+presetTestCard.setConfig({ lang: 'en', remote_entity: 'remote.test', timer_helper: 'timer.test', timer_presets: [30, 0, 90, 120] });
+presetTestCard.hass = fakeHass;
+const emptyPresetBtn = presetTestCard.shadowRoot.querySelector('[data-el="btn-t-empty-1"]');
+if (!emptyPresetBtn) throw new Error('Empty preset button not found (expected data-el="btn-t-empty-1")');
+if (!emptyPresetBtn.classList.contains('btn--disabled')) {
+  throw new Error('Empty preset button is missing the btn--disabled class');
+}
+const filledPresetBtn = presetTestCard.shadowRoot.querySelector('[data-el="btn-t30"]');
+if (!filledPresetBtn || filledPresetBtn.classList.contains('btn--disabled')) {
+  throw new Error('Filled preset button should not be disabled');
+}
+console.log('empty-preset OK: unset preset button is disabled/dimmed, filled ones are not');
+
 // version exposed on the class, used by users to verify the *active* class version
 if (customElements.get('ha-ir-ac-control-card-editor').VERSION !== customElements.get('ha-ir-ac-control-card').VERSION) {
   throw new Error('Card/editor VERSION mismatch');
