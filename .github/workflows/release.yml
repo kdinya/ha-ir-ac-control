@@ -10,6 +10,11 @@ on:
         description: 'Version to release (e.g. 1.5.0, no leading v)'
         required: true
         type: string
+      notes:
+        description: 'What changed (release notes, one item per line)'
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -61,7 +66,8 @@ jobs:
         with:
           tag_name: ${{ steps.resolve.outputs.tag }}
           files: air-conditioner-card.js
-          generate_release_notes: true
+          body: ${{ inputs.notes }}
+          generate_release_notes: ${{ inputs.notes == '' || inputs.notes == null }}
           name: ${{ steps.resolve.outputs.tag }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
