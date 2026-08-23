@@ -1,0 +1,23 @@
+{
+  "name": "ha-ir-ac-control",
+  "version": "1.1.0",
+  "description": "Universal Home Assistant Lovelace card to control an air conditioner via an IR remote (Broadlink remote.send_command / remote.learn_command).",
+  "main": "air-conditioner-card.js",
+  "scripts": {
+    "test": "node test/smoke.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kdinya/ha-ir-ac-control.git"
+  },
+  "keywords": ["home-assistant", "lovelace-card", "broadlink", "ir-remote", "air-conditioner"],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/kdinya/ha-ir-ac-control/issues"
+  },
+  "homepage": "https://github.com/kdinya/ha-ir-ac-control#readme",
+  "devDependencies": {
+    "jsdom": "^24.0.0"
+  }
+}
