@@ -25,7 +25,7 @@
  * with any other Lovelace resource loaded on the same dashboard.
  */
 (function () {
-const CARD_VERSION = '1.7.0';
+const CARD_VERSION = '1.7.1';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // List of screen elements whose position/size can be adjusted in the editor.
@@ -196,10 +196,8 @@ const I18N = {
     f_temp_helper: 'Input_number для збереження температури (рекомендовано)',
     f_timer_helper: 'Timer-помічник для таймера ВИМКНЕННЯ (рекомендовано)',
     f_timer_helper_on: 'Timer-помічник для таймера УВІМКНЕННЯ (окремий, необов’язково)',
-    f_timer_off_enable: 'Input_boolean — перемикач "Таймер вимкнення активний"',
-    f_timer_on_enable: 'Input_boolean — перемикач "Таймер увімкнення активний"',
     hint_helpers: 'Temp_helper та timer_helper — це input_number/timer helper-и Home Assistant. Без них картка працює, але температура і таймер скидаються при перезавантаженні вкладки.',
-    hint_timer_enable: 'Ці input_boolean — не обов’язкові. Якщо їх вказати, на картці з’являться перемикачі, якими можна вмикати/вимикати відповідну автоматизацію (не змінюючи саму автоматизацію). Приклади автоматизацій — у README.',
+    hint_timer_enable: 'Коли задано timer_helper і/або timer_helper_on, на картці автоматично з’являються перемикачі "ВИМК"/"УВІМК" — ними можна окремо вмикати чи вимикати автоматичну відправку команди по завершенню відповідного таймера. Це функція самої картки: жодних input_boolean чи інших допоміжних об’єктів створювати не потрібно, стан перемикача зберігається в цьому браузері. Якщо в вас окремо налаштована автоматизація на timer.finished (приклад — у README) — ці перемикачі не залежать від неї і можуть використовуватись як разом, так і замість неї.',
     sec_main_buttons: 'Основні кнопки',
     f_btn_on: 'Кнопка ON',
     f_btn_off: 'Кнопка OFF',
@@ -274,10 +272,8 @@ const I18N = {
     f_temp_helper: 'input_number helper to persist temperature (recommended)',
     f_timer_helper: 'timer helper for the OFF timer (recommended)',
     f_timer_helper_on: 'timer helper for a separate ON timer (optional)',
-    f_timer_off_enable: 'input_boolean — "OFF-timer automation active" switch',
-    f_timer_on_enable: 'input_boolean — "ON-timer automation active" switch',
     hint_helpers: 'temp_helper and timer_helper are Home Assistant input_number/timer helpers. The card works without them, but temperature and timer reset on tab reload.',
-    hint_timer_enable: 'These input_boolean entities are optional. If set, the card shows switches to enable/disable the matching automation without editing the automation itself. See the README for example automations.',
+    hint_timer_enable: 'Once timer_helper and/or timer_helper_on are set, the card automatically shows "OFF"/"ON" toggle switches — use them to independently turn the automatic send-command-on-timer-finish behavior on or off for each timer. This is card-only functionality: no input_boolean or other helper entity is created, the toggle state is remembered in this browser. If you also have a separate timer.finished automation (example in the README), these toggles are independent of it — use the card, the automation, or both.',
     sec_main_buttons: 'Main buttons',
     f_btn_on: 'ON button',
     f_btn_off: 'OFF button',
@@ -352,10 +348,8 @@ const I18N = {
     f_temp_helper: 'input_number для сохранения температуры (рекомендуется)',
     f_timer_helper: 'Timer-помощник для таймера ВЫКЛЮЧЕНИЯ (рекомендуется)',
     f_timer_helper_on: 'Timer-помощник для отдельного таймера ВКЛЮЧЕНИЯ (необязательно)',
-    f_timer_off_enable: 'Input_boolean — переключатель "Таймер выключения активен"',
-    f_timer_on_enable: 'Input_boolean — переключатель "Таймер включения активен"',
     hint_helpers: 'temp_helper и timer_helper — это input_number/timer helper-ы Home Assistant. Без них карточка работает, но температура и таймер сбрасываются при перезагрузке вкладки.',
-    hint_timer_enable: 'Эти input_boolean необязательны. Если указать их, на карточке появятся переключатели для включения/выключения соответствующей автоматизации без её редактирования. Примеры автоматизаций — в README.',
+    hint_timer_enable: 'Когда задан timer_helper и/или timer_helper_on, на карточке автоматически появляются переключатели "ВЫКЛ"/"ВКЛ" — ими можно отдельно включать или выключать автоматическую отправку команды по завершению соответствующего таймера. Это функция самой карточки: никаких input_boolean или других вспомогательных объектов создавать не нужно, состояние переключателя запоминается в этом браузере. Если у вас отдельно настроена автоматизация на timer.finished (пример — в README) — эти переключатели от неё не зависят и могут использоваться как вместе с ней, так и вместо неё.',
     sec_main_buttons: 'Основные кнопки',
     f_btn_on: 'Кнопка ON',
     f_btn_off: 'Кнопка OFF',
@@ -671,7 +665,7 @@ class AirConditionerCard extends HTMLElement {
     // work unless something we actually watch (or the config object) has
     // changed since the last call.
     const c = this.config;
-    const watched = [c.binary_sensor, c.room_temp_sensor, c.room_humidity_sensor, c.weather_entity, c.outdoor_temp_sensor, c.outdoor_humidity_sensor, c.timer_helper, c.timer_helper_on, c.temp_helper, c.timer_off_enable_entity, c.timer_on_enable_entity];
+    const watched = [c.binary_sensor, c.room_temp_sensor, c.room_humidity_sensor, c.weather_entity, c.outdoor_temp_sensor, c.outdoor_humidity_sensor, c.timer_helper, c.timer_helper_on, c.temp_helper];
     let sig = '';
     for (const id of watched) {
       if (!id) { sig += '|'; continue; }
@@ -743,19 +737,22 @@ class AirConditionerCard extends HTMLElement {
     const timerOnState = timerOnId ? hass.states[timerOnId] : null;
     this._timerOnStateObj = timerOnState || null;
 
-    // --- enable/disable switches for the automations (input_boolean, optional) ---
-    const offEnableId = this.config.timer_off_enable_entity;
-    const onEnableId = this.config.timer_on_enable_entity;
-    this._local.timerOffEnabled = offEnableId ? hass.states[offEnableId]?.state === 'on' : null;
-    this._local.timerOnEnabled = onEnableId ? hass.states[onEnableId]?.state === 'on' : null;
+    // --- card-only auto-action toggles for the ON/OFF timers ---
+    // No helper entities: the on/off state lives in this browser's
+    // localStorage (per timer-helper entity id), so it doesn't require
+    // creating anything in Home Assistant and doesn't affect other
+    // devices/browsers. Defaults to enabled when nothing's been toggled.
+    this._local.timerOffEnabled = timerId ? this._getAutoActionPref('off', timerId) : null;
+    this._local.timerOnEnabled = timerOnId ? this._getAutoActionPref('on', timerOnId) : null;
 
-    // Best-effort: if the OFF timer just finished naturally (was 'active',
-    // now isn't, and we actually reached its finish time rather than being
-    // cancelled early), turn the AC off. This only works while this card
-    // happens to be open in a browser tab — for a reliable turn-off
-    // regardless of whether anyone's looking at a dashboard, add the
-    // timer.finished automation described in the README. Skipped entirely
-    // if the OFF-automation switch on the card was flipped off.
+    // If the OFF timer just finished naturally (was 'active', now isn't,
+    // and we actually reached its finish time rather than being cancelled
+    // early), the card sends the OFF command itself. This only runs while
+    // this card is open in a browser tab, and only when the OFF-timer
+    // auto-action toggle on the card is on (it's independent from any
+    // separate timer.finished automation you may also have — see the
+    // README — so you can drive this from the card, an automation, or
+    // both, and turn either one off without touching the other).
     if (
       this._local.timerOffEnabled !== false &&
       prevTimerState && prevTimerState.state === 'active' &&
@@ -767,9 +764,7 @@ class AirConditionerCard extends HTMLElement {
       this._sendIR('off');
     }
 
-    // Same best-effort mirror for the separate ON timer. As with the OFF
-    // timer, this only fires while the tab is open — the real, always-on
-    // behaviour lives in the timer.finished automation from the README.
+    // Same for the separate ON timer, gated by its own auto-action toggle.
     if (
       this._local.timerOnEnabled !== false &&
       prevTimerOnState && prevTimerOnState.state === 'active' &&
@@ -815,7 +810,13 @@ class AirConditionerCard extends HTMLElement {
       style.id = fontId;
       document.head.appendChild(style);
     }
-    const rule = `@font-face { font-family: 'Seg7'; src: url('${fontSrc}'); font-weight: normal; font-style: normal; }`;
+    // font-display: block avoids the flash-of-fallback-font: even though the
+    // font is an inline data: URI (no network fetch), the browser still
+    // registers/parses it asynchronously relative to first paint, so
+    // without this the digits briefly render in the 'Courier New' fallback
+    // and then visibly swap to Seg7 a frame or two later. "block" hides
+    // text for that brief window instead of showing the wrong font.
+    const rule = `@font-face { font-family: 'Seg7'; src: url('${fontSrc}'); font-weight: normal; font-style: normal; font-display: block; }`;
     if (style.textContent !== rule) style.textContent = rule;
   }
 
@@ -844,6 +845,30 @@ class AirConditionerCard extends HTMLElement {
     this._local.temp = value;
     const tempId = this.config.temp_helper;
     if (tempId && this._hass.states[tempId]) this._svc('input_number', 'set_value', tempId, { value });
+  }
+
+  _autoActionStorageKey(which, timerEntityId) {
+    return `ha-ir-ac-control:auto-action:${which}:${timerEntityId}`;
+  }
+
+  _getAutoActionPref(which, timerEntityId) {
+    if (!timerEntityId) return true;
+    try {
+      const raw = localStorage.getItem(this._autoActionStorageKey(which, timerEntityId));
+      return raw === null ? true : raw === '1';
+    } catch (e) {
+      return true;
+    }
+  }
+
+  _setAutoActionPref(which, timerEntityId, value) {
+    if (!timerEntityId) return;
+    try {
+      localStorage.setItem(this._autoActionStorageKey(which, timerEntityId), value ? '1' : '0');
+    } catch (e) {
+      // Storage unavailable (private browsing, quota, etc) - the toggle
+      // will just fall back to "enabled" every reload; not fatal.
+    }
   }
 
   _startTimerTimeout() {
@@ -882,10 +907,20 @@ class AirConditionerCard extends HTMLElement {
     const step = this.config.timer_step || 5;
 
     if (act === 'toggle_timer_off_enable') {
-      if (this.config.timer_off_enable_entity) this._svc('input_boolean', 'toggle', this.config.timer_off_enable_entity);
+      const timerId = this.config.timer_helper;
+      if (!timerId) return;
+      const next = !(this._local.timerOffEnabled !== false);
+      this._setAutoActionPref('off', timerId, next);
+      this._local.timerOffEnabled = next;
+      this._render();
       return;
     } else if (act === 'toggle_timer_on_enable') {
-      if (this.config.timer_on_enable_entity) this._svc('input_boolean', 'toggle', this.config.timer_on_enable_entity);
+      const timerOnId = this.config.timer_helper_on;
+      if (!timerOnId) return;
+      const next = !(this._local.timerOnEnabled !== false);
+      this._setAutoActionPref('on', timerOnId, next);
+      this._local.timerOnEnabled = next;
+      this._render();
       return;
     }
 
@@ -1077,14 +1112,14 @@ class AirConditionerCard extends HTMLElement {
             </div>
           </div>
 
-          ${(c.timer_off_enable_entity || c.timer_on_enable_entity) ? `
+          ${(c.timer_helper || c.timer_helper_on) ? `
           <div class="auto-row">
-            ${c.timer_off_enable_entity ? `
+            ${c.timer_helper ? `
             <div class="auto-toggle" data-act="toggle_timer_off_enable" data-el="auto-off-toggle">
               <span class="auto-toggle-label">${this._t('timer_off_word')}</span>
               <span class="auto-toggle-switch" data-el="auto-off-switch"><span class="auto-toggle-knob"></span></span>
             </div>` : ''}
-            ${c.timer_on_enable_entity ? `
+            ${c.timer_helper_on ? `
             <div class="auto-toggle" data-act="toggle_timer_on_enable" data-el="auto-on-toggle">
               <span class="auto-toggle-label">${this._t('timer_on_word')}</span>
               <span class="auto-toggle-switch" data-el="auto-on-switch"><span class="auto-toggle-knob"></span></span>
@@ -1634,8 +1669,6 @@ class AirConditionerCardEditor extends HTMLElement {
       hint.textContent = this._t('hint_helpers');
       panel.appendChild(hint);
 
-      panel.appendChild(this._entityField(this._t('f_timer_off_enable'), 'timer_off_enable_entity', 'input_boolean'));
-      panel.appendChild(this._entityField(this._t('f_timer_on_enable'), 'timer_on_enable_entity', 'input_boolean'));
       const hint2 = document.createElement('div');
       hint2.className = 'hint';
       hint2.textContent = this._t('hint_timer_enable');

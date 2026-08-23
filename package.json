@@ -1,6 +1,6 @@
 {
   "name": "ha-ir-ac-control",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Universal Home Assistant Lovelace card to control an air conditioner via any IR remote entity (Broadlink, Xiaomi, ESPHome, etc.) \u2014 remote.send_command / remote.learn_command.",
   "main": "air-conditioner-card.js",
   "scripts": {

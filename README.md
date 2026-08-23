@@ -165,12 +165,6 @@ timer:
   climate_wakeup_timer:
     name: Climate control — wake-up timer
 
-input_boolean:
-  climate_auto_off_enabled:
-    name: Climate control — auto-off on timer
-  climate_auto_on_enabled:
-    name: Climate control — auto-on on timer
-
 automation:
   - alias: "Climate control: sleep timer — toggle by contact state"
     description: >-
@@ -183,10 +177,6 @@ automation:
         event_type: timer.finished
         event_data:
           entity_id: timer.climate_sleep_timer
-    conditions:
-      - condition: state
-        entity_id: input_boolean.climate_auto_off_enabled
-        state: "on"
     actions:
       - if:
           - condition: state
@@ -215,10 +205,6 @@ automation:
         event_type: timer.finished
         event_data:
           entity_id: timer.climate_wakeup_timer
-    conditions:
-      - condition: state
-        entity_id: input_boolean.climate_auto_on_enabled
-        state: "on"
     actions:
       - action: remote.send_command
         target:
@@ -235,19 +221,26 @@ On the card, pick these entities on the **Entities** tab:
 |------------------------------|-------------------------------------|-----------------------------------------------------------------------|
 | `timer_helper`               | `timer.climate_sleep_timer`         | The OFF timer — countdown shown on the card, T30/T60/etc. buttons.   |
 | `timer_helper_on`            | `timer.climate_wakeup_timer`        | An independent ON timer (optional; leave empty if you don't need one).|
-| `timer_off_enable_entity`    | `input_boolean.climate_auto_off_enabled` | Adds an OFF toggle switch on the card face.                     |
-| `timer_on_enable_entity`     | `input_boolean.climate_auto_on_enabled`  | Adds an ON toggle switch on the card face.                      |
 
-The two `input_boolean` fields are entirely optional. If you leave them
-empty, the card doesn't show any switches and the automations above (once
-you remove their `conditions:` block, or point it at your own toggle) run
-unconditionally whenever their timer finishes. If you set them, the card
-grows two small physical-looking switches under the button panel — flip
-them off and the corresponding automation's condition blocks it, without
-touching the automation itself or the timer. That also means you can
-choose, per household, whether the schedule is driven **purely by
-automations** (leave both switches on, or skip them entirely) or **from
-the card** (use the switches as an on/off gate you control by hand).
+### Card-only ON/OFF toggle switches
+
+As soon as `timer_helper` and/or `timer_helper_on` are set, the card
+automatically shows small "OFF"/"ON" toggle switches under the button
+panel — no extra config, no `input_boolean` or any other helper entity to
+create. Flipping a switch off tells **the card itself** to stop sending the
+IR command when that timer finishes; flipping it on (the default) lets it
+keep doing so. The state lives in that browser's `localStorage`, so it's
+per-device and doesn't require anything in Home Assistant.
+
+This is entirely independent from the `timer.finished` automations above —
+the automation isn't aware of the card's switch and keeps firing regardless
+of it. That's intentional: it lets you run the schedule from the
+automation only, from the card only, or from both at once (in which case
+the IR command just gets sent twice, which is harmless for most AC remotes
+but worth avoiding if you'd rather pick one). If you want the automation
+itself to be toggleable too, add your own `input_boolean` and a
+`conditions:` block referencing it — that's a normal Home Assistant
+automation concern, unrelated to the card.
 
 ## Configuration example
 
@@ -318,6 +311,15 @@ npm test
 
 ## Changelog highlights
 
+- **1.7.1** — The ON/OFF timer toggle switches no longer need
+  `input_boolean` helpers: they're now a pure card feature (state kept in
+  the browser's `localStorage`), so nothing needs to be created in Home
+  Assistant to get them — they just appear once `timer_helper` /
+  `timer_helper_on` are set. They're deliberately independent from any
+  `timer.finished` automation you may also have, so you can drive the
+  schedule from the card, an automation, or both. Also fixed a brief
+  flash of the fallback font before the seven-segment digits render on
+  load/reload (`font-display: block`).
 - **1.7.0** — Added an optional second, independent timer helper
   (`timer_helper_on`) for turning the AC on, separate from the existing
   off timer. Added two optional physical-looking toggle switches on the
