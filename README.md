@@ -57,6 +57,14 @@ will fail without it.
   sleep timer survive a browser tab reload (nothing is stored locally).
 - Optional contact/power sensor — the card detects the AC is running and
   shows matching icons/animations on its own.
+- **Screen brightness slider** on the "Appearance" tab (20–150%) for the
+  digital-clock display.
+- **Premium-device button styling** — layered metallic gradients, a bevel
+  highlight, and a real "press" effect on every button.
+- Lightweight on the frontend — the card skips all re-render work on `hass`
+  updates that don't touch any entity it actually watches (Home Assistant
+  calls every card's `hass` setter on nearly every state change system-wide,
+  many times a second).
 
 ## Installation
 
@@ -178,6 +186,7 @@ mode2_name: TURBO
 timer_presets: [30, 60, 90, 120]
 timer_step: 5
 aspect_ratio: 1.72/1
+screen_brightness: 100
 commands:
   'on': 'JgDuAF4A...'
   'off': 'JgBkAV4A...'
@@ -225,6 +234,19 @@ npm test
 
 ## Changelog highlights
 
+- **1.6.1** — Fixed the manual/dynamic timer forcing the big AC-temperature
+  display fully visible while editing it with the AC off (it now only
+  affects the timer readout, as intended). The card now skips all
+  recomputation and DOM work on `hass` updates that don't change anything
+  it actually watches, and only writes DOM text when the value actually
+  changed — noticeably lighter on CPU on a live dashboard. Raised the max
+  element scale from 600% to 1500%. Room-temperature °C and room-humidity %
+  unit symbols are now sized independently (3× and 2× smaller). Position
+  tab labels now say what each element actually is (room temperature,
+  outdoor temperature, AC set temperature) instead of "small/large". Added
+  a screen brightness slider (20–150%) on the Appearance tab. Reworked
+  button styling — layered metallic gradients, bevel highlight, deeper
+  press effect.
 - **1.6.0** — Fixed the editor's language switch not repainting itself
   immediately (it updated the config but the visible UI stayed on the old
   language until something else forced a redraw). Smaller °C/°/unit

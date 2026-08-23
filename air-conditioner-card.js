@@ -17,25 +17,26 @@
  *  - "Position" tab — drag elements on the live preview and resize them
  *    with −/+, or use the wide X/Y/Size sliders (each duplicated with its
  *    own −/+ buttons) listed below the preview.
- *  - "Appearance" tab — aspect ratio, button panel height, custom font.
+ *  - "Appearance" tab — aspect ratio, button panel height, screen
+ *    brightness, custom font.
  *
  * The whole file is wrapped in an IIFE so none of its declarations ever
  * leak into the page's global scope — this is what keeps it from clashing
  * with any other Lovelace resource loaded on the same dashboard.
  */
 (function () {
-const CARD_VERSION = '1.6.0';
+const CARD_VERSION = '1.6.1';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // List of screen elements whose position/size can be adjusted in the editor.
 const POSITIONABLE_ELEMENTS = [
   { key: 'mode',          label: 'Іконка режиму / назва' },
   { key: 'sensors',       label: 'Іконка стану роботи' },
-  { key: 'ext_temp',      label: 'Темп. в кімнаті (мала)' },
+  { key: 'ext_temp',      label: 'Температура в кімнаті' },
   { key: 'humidity',      label: 'Вологість в кімнаті' },
-  { key: 'main_temp',     label: 'Велика температура' },
+  { key: 'main_temp',     label: 'Температура кондиціонера (налаштування)' },
   { key: 'time',          label: 'Годинник' },
-  { key: 'weather',       label: 'Темп. на вулиці' },
+  { key: 'weather',       label: 'Температура на вулиці' },
   { key: 'wind',          label: 'Вітер/вологість на вулиці' },
   { key: 'timer_clock',   label: 'Таймер — відлік' },
   { key: 'timer_preset',  label: 'Таймер — підпис' },
@@ -86,26 +87,29 @@ const POSITIONABLE_OPACITY_VAR = {
 // element is now individually toggleable in the Position tab regardless.
 const DEFAULT_ALWAYS_ON = {};
 POSITIONABLE_ELEMENTS.forEach((item) => { DEFAULT_ALWAYS_ON[item.key] = false; });
-Object.assign(DEFAULT_ALWAYS_ON, { time: true, ext_temp: true, humidity: true, weather: true });
+Object.assign(DEFAULT_ALWAYS_ON, { time: true, ext_temp: true, humidity: true, weather: true, wind: true, timer_clock: true, timer_preset: true });
 
 const DEFAULT_OFFSETS = {
-  mode_x: '0cqw', mode_y: '0cqw',
-  sensors_x: '0cqw', sensors_y: '0cqw',
-  ext_temp_x: '0cqw', ext_temp_y: '0cqw',
-  humidity_x: '0cqw', humidity_y: '0cqw',
-  main_temp_x: '0cqw', main_temp_y: '0cqw',
-  fan_x: '0cqw', fan_y: '0cqw',
+  mode_x: '-0.5cqw', mode_y: '0.5cqw',
+  sensors_x: '7.5cqw', sensors_y: '4cqw',
+  ext_temp_x: '-2.5cqw', ext_temp_y: '3.5cqw',
+  humidity_x: '1cqw', humidity_y: '12cqw',
+  main_temp_x: '-22.5cqw', main_temp_y: '-10cqw',
+  fan_x: '-1.5cqw', fan_y: '0.5cqw',
   turbo_lcd_x: '0cqw', turbo_lcd_y: '0cqw',
-  time_x: '0cqw', time_y: '0cqw',
+  time_x: '0cqw', time_y: '2.5cqw',
   timer_clock_x: '0cqw', timer_clock_y: '1.0cqw',
   timer_preset_x: '0cqw', timer_preset_y: '3.6cqw',
-  weather_x: '0cqw', weather_y: '0cqw',
-  wind_x: '0cqw', wind_y: '0cqw',
+  weather_x: '-0.5cqw', weather_y: '5cqw',
+  wind_x: '-0.5cqw', wind_y: '5cqw',
 };
 
 // Scale (size) of each element, controlled by the −/+ buttons in the editor.
-const DEFAULT_SCALES = {};
-POSITIONABLE_ELEMENTS.forEach((item) => { DEFAULT_SCALES[item.key] = 1; });
+const DEFAULT_SCALES = {
+  mode: 1.2, sensors: 2.6, ext_temp: 3, humidity: 1.9, main_temp: 1.05,
+  time: 6, weather: 1.3, wind: 1.3, timer_clock: 1, timer_preset: 1,
+  fan: 1.1, turbo_lcd: 1.6,
+};
 
 // Which axes of each element's transform are centered (`calc(-50% + Xcqw)`)
 // vs. plain offsets (`Xcqw`) — needed to mirror the exact CSS transform
@@ -131,9 +135,9 @@ const POS_OFFSET_MIN = -30;
 const POS_OFFSET_MAX = 30;
 const POS_OFFSET_STEP = 0.5;
 const POS_SCALE_MIN = 0.4;
-const POS_SCALE_MAX = 6; // was capped at 3 (300%); some screens (e.g. the
-                          // clock) start from a small base font, so 300%
-                          // still isn't enough — raised to 600%.
+const POS_SCALE_MAX = 15; // raised again: some elements (e.g. the clock)
+                           // start from a small base font, so even 600%
+                           // wasn't enough headroom for large dashboards.
 const POS_SCALE_STEP = 0.05;
 
 function clampToStep(value, min, max, step) {
@@ -209,15 +213,16 @@ const I18N = {
     hint_pos_drag: 'Перетягніть елемент прямо на екрані картки, щоб змінити позицію. Розмір — повзунками нижче.',
     f_aspect: 'Пропорції картки (aspect-ratio, напр. 1.72/1)',
     f_controls_height: 'Висота панелі кнопок (напр. 12cqw)',
+    f_brightness: 'Яскравість екрана',
     sec_font: 'Шрифт екрана (Seg7)',
     f_font_upload: 'Завантажити свій файл шрифту (.ttf/.otf/.woff/.woff2)',
     font_default_active: 'Зараз використовується стандартний шрифт, вбудований у картку.',
     font_custom_active: 'Зараз використовується завантажений вами шрифт.',
-    lbl_main_temp: 'Велика температура',
-    lbl_ext_temp: 'Темп. в кімнаті (мала)',
+    lbl_main_temp: 'Температура кондиціонера (налаштування)',
+    lbl_ext_temp: 'Температура в кімнаті',
     lbl_humidity: 'Вологість в кімнаті',
     lbl_time: 'Годинник',
-    lbl_weather: 'Темп. на вулиці',
+    lbl_weather: 'Температура на вулиці',
     lbl_wind: 'Вітер/вологість на вулиці',
     lbl_mode: 'Іконка режиму / назва',
     lbl_sensors: 'Іконка стану роботи',
@@ -282,12 +287,13 @@ const I18N = {
     hint_pos_drag: 'Drag an element right on the card screen to reposition it. Use the sliders below to resize it.',
     f_aspect: 'Card aspect ratio (e.g. 1.72/1)',
     f_controls_height: 'Button panel height (e.g. 12cqw)',
+    f_brightness: 'Screen brightness',
     sec_font: 'Screen font (Seg7)',
     f_font_upload: 'Upload your own font file (.ttf/.otf/.woff/.woff2)',
     font_default_active: 'Currently using the default font built into the card.',
     font_custom_active: 'Currently using the font you uploaded.',
-    lbl_main_temp: 'Large temperature',
-    lbl_ext_temp: 'Room temp. (small)',
+    lbl_main_temp: 'AC set temperature',
+    lbl_ext_temp: 'Room temperature',
     lbl_humidity: 'Room humidity',
     lbl_time: 'Clock',
     lbl_weather: 'Outdoor temperature',
@@ -355,15 +361,16 @@ const I18N = {
     hint_pos_drag: 'Перетащите элемент прямо на экране карточки, чтобы изменить позицию. Размер — ползунками ниже.',
     f_aspect: 'Пропорции карточки (aspect-ratio, напр. 1.72/1)',
     f_controls_height: 'Высота панели кнопок (напр. 12cqw)',
+    f_brightness: 'Яркость экрана',
     sec_font: 'Шрифт экрана (Seg7)',
     f_font_upload: 'Загрузить свой файл шрифта (.ttf/.otf/.woff/.woff2)',
     font_default_active: 'Сейчас используется стандартный шрифт, встроенный в карточку.',
     font_custom_active: 'Сейчас используется загруженный вами шрифт.',
-    lbl_main_temp: 'Большая температура',
-    lbl_ext_temp: 'Темп. в комнате (малая)',
+    lbl_main_temp: 'Температура кондиционера (настройка)',
+    lbl_ext_temp: 'Температура в комнате',
     lbl_humidity: 'Влажность в комнате',
     lbl_time: 'Часы',
-    lbl_weather: 'Темп. на улице',
+    lbl_weather: 'Температура на улице',
     lbl_wind: 'Ветер/влажность на улице',
     lbl_mode: 'Иконка режима / название',
     lbl_sensors: 'Иконка состояния работы',
@@ -412,6 +419,9 @@ class AirConditionerCard extends HTMLElement {
     this._timerStateObj = null;
     this._elCache = {};
     this._lastConfirmedPower = null;
+    this._lastHassSig = null;
+    this._lastConfigRef = null;
+    this._lastLockActive = false;
 
     this._timerEditMode = false;
     this._timerEditValue = 30;
@@ -606,7 +616,8 @@ class AirConditionerCard extends HTMLElement {
       // invalid CSS ("height: 12;"), which the browser silently ignores —
       // falling back to auto height (sized to the buttons) for anything
       // but 0, which happens to be valid unitless CSS on its own.
-      controls_height: pxCqw(config.controls_height || '12cqw'),
+      controls_height: pxCqw(config.controls_height || '11cqw'),
+      screen_brightness: Number(config.screen_brightness ?? 100),
 
       opacity_off_main_temp: opacityOff.opacity_off_main_temp,
       opacity_off_ext_temp: opacityOff.opacity_off_ext_temp,
@@ -640,6 +651,28 @@ class AirConditionerCard extends HTMLElement {
       const s = get(id);
       return s === '' || s === 'unavailable' || s === 'unknown';
     };
+
+    // Home Assistant calls this setter on nearly every state change anywhere
+    // in the system, many times a second on a live install — most of which
+    // have nothing to do with this card. Skip all recomputation and DOM
+    // work unless something we actually watch (or the config object) has
+    // changed since the last call.
+    const c = this.config;
+    const watched = [c.binary_sensor, c.room_temp_sensor, c.room_humidity_sensor, c.weather_entity, c.outdoor_temp_sensor, c.outdoor_humidity_sensor, c.timer_helper, c.temp_helper];
+    let sig = '';
+    for (const id of watched) {
+      if (!id) { sig += '|'; continue; }
+      const st = hass.states[id];
+      if (!st) { sig += '|'; continue; }
+      sig += st.state + ':' + (st.attributes?.temperature ?? '') + ':' + (st.attributes?.wind_speed ?? '') + ':' + (st.attributes?.humidity ?? '') + ':' + (st.attributes?.finishes_at ?? '') + ':' + (st.attributes?.duration ?? '') + '|';
+    }
+    const configChanged = this._lastConfigRef !== c;
+    const lockActiveNow = Date.now() <= this._lockUntil;
+    const lockJustExpired = this._lastLockActive && !lockActiveNow;
+    this._lastLockActive = lockActiveNow;
+    if (!configChanged && sig === this._lastHassSig && !lockJustExpired) return;
+    this._lastHassSig = sig;
+    this._lastConfigRef = c;
 
     // --- contact/power sensor (optional) ---
     const binEntity = this.config.binary_sensor;
@@ -916,10 +949,10 @@ class AirConditionerCard extends HTMLElement {
                 </div>
                 <div class="col-right">
                   <div class="ext-temp-block" data-el="ext-temp-block" style="transform: translate(${off('ext_temp_x')}, ${off('ext_temp_y')})${scl('ext_temp')};">
-                    <span class="seg ext-temp-val" data-el="room-temp">-</span><span class="ext-unit">°C</span>
+                    <span class="seg ext-temp-val" data-el="room-temp">-</span><span class="ext-unit ext-temp-unit">°C</span>
                   </div>
                   <div class="ext-hum-block" data-el="ext-hum-block" style="transform: translate(${off('humidity_x')}, ${off('humidity_y')})${scl('humidity')};">
-                    <span class="seg ext-hum-val" data-el="room-hum">--</span><span class="ext-unit">%</span>
+                    <span class="seg ext-hum-val" data-el="room-hum">--</span><span class="ext-unit ext-hum-unit">%</span>
                   </div>
                 </div>
               </div>
@@ -1012,6 +1045,7 @@ class AirConditionerCard extends HTMLElement {
     const c = this.config;
 
     const host = this.shadowRoot.host;
+    host.style.setProperty('--screen-brightness', String(Math.max(20, Math.min(150, c.screen_brightness)) / 100));
     const isTimerActive = this._timerStateObj && this._timerStateObj.state === 'active';
     for (const item of POSITIONABLE_ELEMENTS) {
       const key = item.key;
@@ -1019,19 +1053,20 @@ class AirConditionerCard extends HTMLElement {
       const offValue = c[`opacity_off_${key}`];
       let finalVal = power ? '1' : offValue;
       if (c[`opacity_always_${key}`]) finalVal = '1';
-      if (this._timerEditMode && (key === 'timer_clock' || key === 'timer_preset' || key === 'main_temp')) finalVal = '1';
+      if (this._timerEditMode && (key === 'timer_clock' || key === 'timer_preset')) finalVal = '1';
       if (isTimerActive && (key === 'timer_clock' || key === 'timer_preset')) finalVal = '1';
       host.style.setProperty(cssVar, finalVal);
     }
 
-    const set = (key, val) => { const el = this._el(key); if (el) el.textContent = val; };
+    const set = (key, val) => { const el = this._el(key); if (el && el.textContent !== String(val)) el.textContent = val; };
     set('temp-num', temp);
     set('room-temp', roomTemp);
     set('room-hum', roomHum);
     set('weather-temp', outTemp);
     set('wind-speed', outSecondary);
     const windUnitEl = this._el('wind-unit');
-    if (windUnitEl) windUnitEl.textContent = c.outdoor_secondary === 'humidity' ? '%' : this._t('unit_wind');
+    const windUnitVal = c.outdoor_secondary === 'humidity' ? '%' : this._t('unit_wind');
+    if (windUnitEl && windUnitEl.textContent !== windUnitVal) windUnitEl.textContent = windUnitVal;
 
     const statusIconEl = this._el('status-icon');
     if (statusIconEl) statusIconEl.classList.toggle('active', isRunning);
@@ -1086,6 +1121,7 @@ class AirConditionerCard extends HTMLElement {
       flex: 1; border-radius: 1.8cqw; position: relative; overflow: hidden; border: 0.5cqw solid rgba(0,0,0,0.55);
       box-shadow: inset 0 0.8cqw 2cqw rgba(0,0,0,0.3), inset 0 -0.2cqw 0.4cqw rgba(255,255,255,0.2), 0 0.2cqw 0.6cqw rgba(0,0,0,0.35);
       background: linear-gradient(160deg, #d0d5d2 0%, #c4cac6 30%, #bcc3be 60%, #b5bcb8 100%);
+      filter: brightness(var(--screen-brightness, 1));
     }
     .screen::before {
       content: ''; position: absolute; top: 0; left: 0; right: 0; height: 38%;
@@ -1118,7 +1154,9 @@ class AirConditionerCard extends HTMLElement {
     .ext-hum-block { display: flex; align-items: baseline; gap: 0.4cqw; opacity: var(--humidity-op); transition: opacity 0.3s; }
     .ext-temp-val { font-size: 5.0cqw; letter-spacing: 0.02cqw; }
     .ext-hum-val { font-size: 4.0cqw; letter-spacing: 0.02cqw; }
-    .ext-unit { font-size: calc(3.5cqw * 0.7); font-weight: 700; color: #1c2820; opacity: 0.8; font-family: -apple-system, sans-serif; }
+    .ext-unit { font-weight: 700; color: #1c2820; opacity: 0.8; font-family: -apple-system, sans-serif; }
+    .ext-temp-unit { font-size: calc(3.5cqw * 0.7 / 3); }
+    .ext-hum-unit { font-size: calc(3.5cqw * 0.7 / 2); }
     .weather-icon { width: calc(3.2cqw * 0.9); height: calc(3.2cqw * 0.9); color: #1c2820; opacity: 0.8; margin-right: 0.5cqw; }
     .wind-icon { width: calc(3.2cqw * 0.9); height: calc(3.2cqw * 0.9); color: #1c2820; opacity: 0.8; margin-right: 0.5cqw; }
     .screen-weather-temp { position: absolute; top: 12.5cqw; left: 2.5cqw; display: flex; align-items: center; opacity: var(--weather-op); transition: opacity 0.3s; z-index: 6; }
@@ -1157,28 +1195,67 @@ class AirConditionerCard extends HTMLElement {
     .control-slot .btn-temp-minus, .control-slot .btn-temp-plus { opacity: 1; transform: scale(1) rotate(0deg); pointer-events: auto; }
     .center-group--timer-mode .btn-temp-minus, .center-group--timer-mode .btn-temp-plus { opacity: 0; transform: scale(0.4) rotate(135deg); pointer-events: none; }
     .center-group--timer-mode .btn-timer-minus, .center-group--timer-mode .btn-timer-plus { opacity: 1; transform: scale(1) rotate(0deg); pointer-events: auto; }
-    .control-slot .btn-timer-minus, .control-slot .btn-timer-plus { border-color: rgba(20, 184, 166, 0.3); color: #5eead4; background: linear-gradient(145deg, rgba(20,40,38,0.9) 0%, rgba(10,20,19,0.95) 100%); }
-    .btn-dyn-timer { width: min(8.2cqw, ${this.config.controls_height}); height: min(8.2cqw, ${this.config.controls_height}); flex-shrink: 0; border-color: rgba(20, 184, 166, 0.25); color: rgba(45, 170, 155, 0.6); background: linear-gradient(145deg, rgba(30,40,38,0.8) 0%, rgba(15,25,23,0.9) 100%); }
+    .control-slot .btn-timer-minus, .control-slot .btn-timer-plus { border-color: rgba(16,125,115,0.4); color: #6bf2dc; background: linear-gradient(145deg, rgba(24,44,42,0.95) 0%, rgba(11,22,21,0.97) 100%); }
+    .btn-dyn-timer { width: min(8.2cqw, ${this.config.controls_height}); height: min(8.2cqw, ${this.config.controls_height}); flex-shrink: 0; border-color: rgba(16,125,115,0.35); color: rgba(50,180,165,0.55); background: linear-gradient(145deg, rgba(32,48,46,0.85) 0%, rgba(14,26,25,0.92) 100%); }
     .btn-dyn-timer svg { width: 3.6cqw; height: 3.6cqw; }
-    .btn-dyn-timer--active { border-color: #14b8a6; color: #5eead4; box-shadow: 0 0.4cqw 0 rgba(0,0,0,0.45), 0 0 2.5cqw rgba(20,184,166,0.55), inset 0 0.2cqw 0 rgba(255,255,255,0.07); animation: pulse-border 1.5s infinite alternate; }
-    @keyframes pulse-border { 0% { box-shadow: 0 0.4cqw 0 rgba(0,0,0,0.45), 0 0 1.5cqw rgba(20,184,166,0.4); } 100% { box-shadow: 0 0.4cqw 0 rgba(0,0,0,0.45), 0 0 3.2cqw rgba(20,184,166,0.7); } }
+    .btn-dyn-timer--active { border-color: #17c9b3; color: #6bf2dc; box-shadow: 0 0.4cqw 0 rgba(0,0,0,0.5), 0 0 2.8cqw rgba(23,201,179,0.5), 0 0 0.5cqw rgba(107,242,220,0.55), inset 0 0.2cqw 0 rgba(255,255,255,0.1); animation: pulse-border 1.5s infinite alternate; }
+    @keyframes pulse-border { 0% { box-shadow: 0 0.4cqw 0 rgba(0,0,0,0.5), 0 0 1.6cqw rgba(23,201,179,0.4); } 100% { box-shadow: 0 0.4cqw 0 rgba(0,0,0,0.5), 0 0 3.4cqw rgba(23,201,179,0.75); } }
     .btn {
-      width: min(10.5cqw, ${this.config.controls_height}); height: min(10.5cqw, ${this.config.controls_height}); border-radius: 50%; border: 0.15cqw solid rgba(255,255,255,0.08);
-      cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-      color: rgba(160,175,165,0.65); transition: transform 0.1s ease, box-shadow 0.18s ease;
-      background: linear-gradient(145deg, rgba(50,55,65,0.9) 0%, rgba(22,25,30,0.95) 100%);
-      box-shadow: 0 0.5cqw 0 rgba(0,0,0,0.5), 0 0.8cqw 2cqw rgba(0,0,0,0.4), inset 0 0.2cqw 0 rgba(255,255,255,0.07), inset 0 -0.15cqw 0 rgba(0,0,0,0.4);
+      width: min(10.5cqw, ${this.config.controls_height}); height: min(10.5cqw, ${this.config.controls_height}); border-radius: 50%;
+      border: 0.15cqw solid rgba(255,255,255,0.1);
+      cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative;
+      color: rgba(160,175,165,0.65); transition: transform 0.08s ease, box-shadow 0.18s ease, filter 0.18s ease;
+      background:
+        radial-gradient(circle at 32% 26%, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0) 42%),
+        linear-gradient(145deg, rgba(58,63,73,0.95) 0%, rgba(34,37,44,0.97) 48%, rgba(18,20,24,0.98) 100%);
+      box-shadow:
+        0 0.55cqw 0 rgba(0,0,0,0.55),
+        0 0.9cqw 2.2cqw rgba(0,0,0,0.45),
+        0 0.1cqw 0.15cqw rgba(255,255,255,0.05),
+        inset 0 0.22cqw 0 rgba(255,255,255,0.09),
+        inset 0 -0.2cqw 0.3cqw rgba(0,0,0,0.5),
+        inset 0 0 0 0.08cqw rgba(255,255,255,0.03);
     }
-    .btn svg { width: 4.5cqw; height: 4.5cqw; }
-    .btn:active { transform: translateY(0.35cqw) scale(0.95); box-shadow: 0 0.15cqw 0 rgba(0,0,0,0.6), 0 0.3cqw 0.8cqw rgba(0,0,0,0.5), inset 0 0.4cqw 0.8cqw rgba(0,0,0,0.4); }
+    .btn::after {
+      content: ''; position: absolute; inset: 0.35cqw; border-radius: 50%; pointer-events: none;
+      background: linear-gradient(160deg, rgba(255,255,255,0.06) 0%, transparent 32%, transparent 68%, rgba(0,0,0,0.12) 100%);
+      border: 0.06cqw solid rgba(255,255,255,0.04);
+    }
+    .btn svg { width: 4.5cqw; height: 4.5cqw; position: relative; z-index: 1; filter: drop-shadow(0 0.1cqw 0.15cqw rgba(0,0,0,0.4)); }
+    .btn:active {
+      transform: translateY(0.4cqw) scale(0.96);
+      box-shadow:
+        0 0.12cqw 0 rgba(0,0,0,0.6),
+        0 0.25cqw 0.7cqw rgba(0,0,0,0.5),
+        inset 0 0.35cqw 0.7cqw rgba(0,0,0,0.45),
+        inset 0 -0.1cqw 0.15cqw rgba(255,255,255,0.03);
+      filter: brightness(0.94);
+    }
     .btn-sm { width: 100%; height: 100%; }
     .btn--disabled { opacity: 0.25; pointer-events: none; filter: grayscale(0.5); }
-    .btn-power { border-color: rgba(100,55,15,0.5); color: rgba(130,70,20,0.65); }
-    .btn-power--on { border-color: #c87820; color: #ffaa40; box-shadow: 0 0.5cqw 0 rgba(0,0,0,0.445), 0 0.8cqw 2cqw rgba(0,0,0,0.4), 0 0 3cqw rgba(200,120,30,0.55), inset 0 0.2cqw 0 rgba(255,255,255,0.1); }
-    .btn-turbo { width: min(10.5cqw, ${this.config.controls_height}); height: min(10.5cqw, ${this.config.controls_height}); font-size: 1.85cqw; font-weight: 900; letter-spacing: 0.08cqw; border-color: rgba(18,55,95,0.45); color: rgba(70,125,165,0.55); z-index: 2; }
-    .btn-turbo--on { border-color: #1a8fce; color: #40c0f5; box-shadow: 0 0.5cqw 0 rgba(0,0,0,0.45), 0 0.8cqw 2cqw rgba(0,0,0,0.4), 0 0 3cqw rgba(26,143,206,0.6), inset 0 0.2cqw 0 rgba(255,255,255,0.1); }
-    .btn-timer { width: min(7.2cqw, ${this.config.controls_height}); height: min(7.2cqw, ${this.config.controls_height}); flex-shrink: 0; border-radius: 50%; font-size: 1.6cqw; font-weight: 900; border-color: rgba(15,118,110,0.35); color: rgba(45,170,155,0.55); background: linear-gradient(145deg, rgba(20,40,38,0.9) 0%, rgba(10,20,19,0.95) 100%); }
-    .btn-timer--on { border-color: #14b8a6; color: #5eead4; box-shadow: 0 0.4cqw 0 rgba(0,0,0,0.45), 0 0 2.5cqw rgba(20,184,166,0.55), inset 0 0.2cqw 0 rgba(255,255,255,0.07); }
+    .btn-power { border-color: rgba(120,65,20,0.55); color: rgba(150,80,25,0.7); }
+    .btn-power--on {
+      border-color: #d4872a; color: #ffb454;
+      box-shadow:
+        0 0.55cqw 0 rgba(0,0,0,0.5), 0 0.9cqw 2.2cqw rgba(0,0,0,0.45),
+        0 0 3.4cqw rgba(210,130,35,0.5), 0 0 0.6cqw rgba(255,180,84,0.6),
+        inset 0 0.22cqw 0 rgba(255,255,255,0.12), inset 0 0 0.4cqw rgba(255,150,50,0.2);
+    }
+    .btn-turbo { width: min(10.5cqw, ${this.config.controls_height}); height: min(10.5cqw, ${this.config.controls_height}); font-size: 1.85cqw; font-weight: 900; letter-spacing: 0.08cqw; border-color: rgba(20,60,100,0.5); color: rgba(75,130,170,0.6); z-index: 2; }
+    .btn-turbo--on {
+      border-color: #2298d9; color: #55cbff;
+      box-shadow:
+        0 0.55cqw 0 rgba(0,0,0,0.5), 0 0.9cqw 2.2cqw rgba(0,0,0,0.45),
+        0 0 3.4cqw rgba(34,152,217,0.55), 0 0 0.6cqw rgba(85,203,255,0.6),
+        inset 0 0.22cqw 0 rgba(255,255,255,0.12), inset 0 0 0.4cqw rgba(60,170,230,0.2);
+    }
+    .btn-timer { width: min(7.2cqw, ${this.config.controls_height}); height: min(7.2cqw, ${this.config.controls_height}); flex-shrink: 0; border-radius: 50%; font-size: 1.6cqw; font-weight: 900; border-color: rgba(16,125,115,0.4); color: rgba(50,180,165,0.6); background: linear-gradient(145deg, rgba(24,44,42,0.95) 0%, rgba(11,22,21,0.97) 100%); }
+    .btn-timer--on {
+      border-color: #17c9b3; color: #6bf2dc;
+      box-shadow:
+        0 0.4cqw 0 rgba(0,0,0,0.5), 0 0 2.8cqw rgba(23,201,179,0.5), 0 0 0.5cqw rgba(107,242,220,0.55),
+        inset 0 0.2cqw 0 rgba(255,255,255,0.1);
+    }
   `; }
 
   getCardSize() { return 3; }
@@ -1572,9 +1649,26 @@ class AirConditionerCardEditor extends HTMLElement {
     if (this._tab === 'appearance') {
       panel.appendChild(this._textField(this._t('f_aspect'), 'aspect_ratio'));
       panel.appendChild(this._textField(this._t('f_controls_height'), 'controls_height'));
+      panel.appendChild(this._brightnessField());
       panel.appendChild(this._sectionTitle(this._t('sec_font')));
       panel.appendChild(this._fontUploadField());
     }
+  }
+
+  _brightnessField() {
+    const wrap = document.createElement('div');
+    wrap.className = 'field';
+    const val = Number(this._config.screen_brightness ?? 100);
+    wrap.innerHTML = `<label>${this._t('f_brightness')}: <span class="brightness-val">${val}%</span></label>`;
+    const input = document.createElement('input');
+    input.type = 'range';
+    input.min = 20; input.max = 150; input.step = 5;
+    input.value = val;
+    const label = wrap.querySelector('.brightness-val');
+    input.addEventListener('input', () => { label.textContent = `${input.value}%`; });
+    input.addEventListener('change', () => this._setField('screen_brightness', parseInt(input.value)));
+    wrap.appendChild(input);
+    return wrap;
   }
 
   // -------------------------------------------------------------------------

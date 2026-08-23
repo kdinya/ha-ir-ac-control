@@ -161,6 +161,28 @@ setTimeout(() => {
   }
   console.log('hass-tick stability OK: drag handle survives repeated hass updates');
 
+  // --- 5. Regression test: the card itself must skip re-render work when a
+  //     hass tick carries no change to any entity it actually watches
+  //     (HA calls the setter on nearly every state change system-wide). ---
+  const perfCard = document.createElement('ha-ir-ac-control-card');
+  perfCard.setConfig({ remote_entity: 'remote.broadlink', room_temp_sensor: 'sensor.room_temp' });
+  perfCard.hass = fakeHass;
+  document.body.appendChild(perfCard);
+  const tempElBefore = perfCard.shadowRoot.querySelector('[data-el="room-temp"]');
+  let renderCalls = 0;
+  const originalRender = perfCard._render.bind(perfCard);
+  perfCard._render = (...args) => { renderCalls++; return originalRender(...args); };
+  for (let i = 0; i < 10; i++) {
+    perfCard.hass = { ...fakeHass, states: { ...fakeHass.states } }; // same values, fresh object each tick
+  }
+  if (renderCalls !== 0) throw new Error(`unchanged hass ticks triggered ${renderCalls} re-renders (expected 0)`);
+  if (perfCard.shadowRoot.querySelector('[data-el="room-temp"]') !== tempElBefore) {
+    throw new Error('unchanged hass ticks touched the DOM');
+  }
+  perfCard.hass = { ...fakeHass, states: { ...fakeHass.states, 'sensor.room_temp': { state: '25.0' } } };
+  if (renderCalls === 0) throw new Error('a genuine sensor change did not trigger a re-render');
+  console.log('hass-tick perf gate OK: unchanged ticks skip render, real changes still render');
+
   console.log('ALL SMOKE TESTS PASSED');
   process.exit(0);
 }, 50);
