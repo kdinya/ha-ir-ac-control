@@ -15,7 +15,8 @@
  *    for a signal from the physical remote and fills the code in.
  *  - "Timers" tab — 4 presets + manual timer step.
  *  - "Position" tab — drag elements on the live preview and resize them
- *    with −/+, or use the X/Y/size sliders.
+ *    with −/+, or use the wide X/Y/Size sliders (each duplicated with its
+ *    own −/+ buttons) listed below the preview.
  *  - "Appearance" tab — aspect ratio, button panel height, custom font.
  *
  * The whole file is wrapped in an IIFE so none of its declarations ever
@@ -23,7 +24,7 @@
  * with any other Lovelace resource loaded on the same dashboard.
  */
 (function () {
-const CARD_VERSION = '1.3.0';
+const CARD_VERSION = '1.4.0';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // List of screen elements whose position/size can be adjusted in the editor.
@@ -77,6 +78,42 @@ const DEFAULT_OFFSETS = {
 // Scale (size) of each element, controlled by the −/+ buttons in the editor.
 const DEFAULT_SCALES = {};
 POSITIONABLE_ELEMENTS.forEach((item) => { DEFAULT_SCALES[item.key] = 1; });
+
+// Which axes of each element's transform are centered (`calc(-50% + Xcqw)`)
+// vs. plain offsets (`Xcqw`) — needed to mirror the exact CSS transform
+// formula from _render() when live-previewing slider drags in the editor
+// without doing a full re-render on every tick.
+const POS_AXIS_CENTERED = {
+  mode: [false, false],
+  sensors: [false, false],
+  ext_temp: [false, false],
+  humidity: [false, false],
+  main_temp: [true, true],
+  time: [true, true],
+  weather: [false, false],
+  wind: [false, false],
+  timer_clock: [true, false],
+  timer_preset: [true, false],
+  fan: [false, false],
+  turbo_lcd: [false, false],
+};
+
+// Bounds for the Position tab controls.
+const POS_OFFSET_MIN = -30;
+const POS_OFFSET_MAX = 30;
+const POS_OFFSET_STEP = 0.5;
+const POS_SCALE_MIN = 0.4;
+const POS_SCALE_MAX = 6; // was capped at 3 (300%); some screens (e.g. the
+                          // clock) start from a small base font, so 300%
+                          // still isn't enough — raised to 600%.
+const POS_SCALE_STEP = 0.05;
+
+function clampToStep(value, min, max, step) {
+  const clamped = Math.max(min, Math.min(max, value));
+  const snapped = Math.round(clamped / step) * step;
+  // Kill floating point noise like 1.7000000000000002.
+  return Math.round(snapped * 1000) / 1000;
+}
 
 function pxCqw(v) {
   // Accepts '3', '3cqw', '-1.5cqw' -> always returns a string with cqw
@@ -160,12 +197,14 @@ const I18N = {
     lbl_timer_preset: 'Таймер — підпис',
     lbl_fan: 'Іконка вентилятора',
     lbl_turbo_lcd: 'Бейдж режиму 2 (TURBO/ECO)',
+    lbl_size: 'Розмір',
     learn_btn: '📡 Навчити',
     learn_wait: '⏳ Чекаю сигнал…',
     learn_ok: '✅ Записано',
     learn_fail: '⚠️ Не вдалось',
     learn_err: '⚠️ Помилка',
     learn_need_remote: 'Спочатку виберіть IR-пульт на вкладці "Сутності".',
+    learn_need_device: 'Спочатку заповніть поле "Device" на вкладці "Сутності" (наприклад: AC_Samsung).',
     ph_code: 'base64 IR код або назва команди',
     ph_code_short: 'IR код',
     timer_on_word: 'Увімкн.',
@@ -228,12 +267,14 @@ const I18N = {
     lbl_timer_preset: 'Timer — caption',
     lbl_fan: 'Fan icon',
     lbl_turbo_lcd: 'Mode 2 badge (TURBO/ECO)',
+    lbl_size: 'Size',
     learn_btn: '📡 Learn',
     learn_wait: '⏳ Waiting for signal…',
     learn_ok: '✅ Saved',
     learn_fail: '⚠️ Failed',
     learn_err: '⚠️ Error',
     learn_need_remote: 'Select an IR remote on the "Entities" tab first.',
+    learn_need_device: 'Fill in the "Device" field on the "Entities" tab first (e.g.: AC_Samsung).',
     ph_code: 'base64 IR code or command name',
     ph_code_short: 'IR code',
     timer_on_word: 'On',
@@ -296,12 +337,14 @@ const I18N = {
     lbl_timer_preset: 'Таймер — подпись',
     lbl_fan: 'Иконка вентилятора',
     lbl_turbo_lcd: 'Бейдж режима 2 (TURBO/ECO)',
+    lbl_size: 'Размер',
     learn_btn: '📡 Обучить',
     learn_wait: '⏳ Жду сигнал…',
     learn_ok: '✅ Записано',
     learn_fail: '⚠️ Не удалось',
     learn_err: '⚠️ Ошибка',
     learn_need_remote: 'Сначала выберите ИК-пульт на вкладке "Сущности".',
+    learn_need_device: 'Сначала заполните поле "Device" на вкладке "Сущности" (например: AC_Samsung).',
     ph_code: 'base64 IR код или имя команды',
     ph_code_short: 'IR код',
     timer_on_word: 'Вкл.',
@@ -1057,7 +1100,21 @@ class AirConditionerCardEditor extends HTMLElement {
     this._domBuilt = false;
   }
 
-  setConfig(config) { this._config = { ...config }; this._render(); }
+  // HA re-invokes setConfig() every time our own "config-changed" event
+  // round-trips back down (typical in the visual editor <-> YAML sync).
+  // If we always did a full _render() here, every single slider tick would
+  // tear down and rebuild the DOM node the user is actively dragging,
+  // which is exactly why the Position sliders felt "broken". We suppress
+  // exactly one echoed render per local edit; anything else (e.g. the user
+  // switching to the YAML tab and editing there) still re-renders normally.
+  setConfig(config) {
+    this._config = { ...config };
+    if (this._suppressNextRender) {
+      this._suppressNextRender = false;
+      return;
+    }
+    this._render();
+  }
 
   // HA calls this setter continuously on live state changes. Only rebuild the
   // whole DOM on the first assignment — otherwise just refresh live data,
@@ -1077,6 +1134,7 @@ class AirConditionerCardEditor extends HTMLElement {
 
   _emitChange(newConfig) {
     this._config = newConfig;
+    this._suppressNextRender = true;
     this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config }, bubbles: true, composed: true }));
   }
 
@@ -1090,14 +1148,45 @@ class AirConditionerCardEditor extends HTMLElement {
   }
 
   _setScale(key, value) {
-    const clamped = Math.max(0.4, Math.min(3, Math.round(value * 20) / 20));
+    const clamped = clampToStep(value, POS_SCALE_MIN, POS_SCALE_MAX, POS_SCALE_STEP);
     this._emitChange({ ...this._config, [`offset_${key}_scale`]: clamped });
+  }
+
+  _setOffset(key, axis, value) {
+    const clamped = clampToStep(value, POS_OFFSET_MIN, POS_OFFSET_MAX, POS_OFFSET_STEP);
+    this._emitChange({ ...this._config, [`offset_${key}_${axis}`]: `${clamped}cqw` });
+    return clamped;
+  }
+
+  // Live-updates just the tiny preview card's DOM (not the whole editor
+  // panel) so dragging a slider gives instant visual feedback without
+  // triggering a re-render of the panel that contains the slider itself.
+  _previewOffset(key, xCqw, yCqw, scale) {
+    const wrap = this.querySelector('.drag-canvas-wrap');
+    const liveCard = wrap && wrap.querySelector('ha-ir-ac-control-card');
+    if (!liveCard || !liveCard.shadowRoot) return;
+    const dataEl = POSITIONABLE_DATA_EL[key];
+    const targetEl = liveCard.shadowRoot.querySelector(`[data-el="${dataEl}"]`);
+    if (!targetEl) return;
+    const [centerX, centerY] = POS_AXIS_CENTERED[key] || [false, false];
+    const tx = centerX ? `calc(-50% + ${xCqw}cqw)` : `${xCqw}cqw`;
+    const ty = centerY ? `calc(-50% + ${yCqw}cqw)` : `${yCqw}cqw`;
+    targetEl.style.transform = `translate(${tx}, ${ty}) scale(${scale})`;
+    this._positionDragHandles(wrap, liveCard);
   }
 
   async _learn(cmdKey, buttonEl) {
     const remote = this._config.remote_entity;
     if (!remote || !this._hass) {
       alert(this._t('learn_need_remote'));
+      return;
+    }
+    // Broadlink (RM4C mini and similar) requires a "device" bucket name to
+    // store learned IR codes under — without it remote.learn_command fails
+    // with "required key not provided @ data['device']".
+    const device = this._config.device;
+    if (!device) {
+      alert(this._t('learn_need_device'));
       return;
     }
     if (this._learning) return;
@@ -1115,6 +1204,9 @@ class AirConditionerCardEditor extends HTMLElement {
 
       await this._hass.callService('remote', 'learn_command', {
         entity_id: remote,
+        device,
+        command: [String(cmdKey)],
+        command_type: 'ir',
         timeout: 15,
       });
 
@@ -1185,8 +1277,15 @@ class AirConditionerCardEditor extends HTMLElement {
         .temp-grid { display: grid; grid-template-columns: 50px 1fr auto; gap: 6px 8px; align-items: center; max-height: 320px; overflow-y: auto; padding-right: 4px; }
         .section-title { font-weight: 600; margin-top: 6px; }
         .hint { font-size: 0.8em; opacity: 0.6; }
-        .pos-item { display: grid; grid-template-columns: 1fr 90px 90px 84px; gap: 8px; align-items: center; }
-        .pos-item label { font-size: 0.85em; }
+        .pos-item { padding: 10px 0 14px; border-bottom: 1px solid var(--divider-color, #ccc); }
+        .pos-item:last-child { border-bottom: none; }
+        .pos-item-title { font-size: 0.9em; font-weight: 600; margin-bottom: 8px; }
+        .pos-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+        .pos-row:last-child { margin-bottom: 0; }
+        .pos-row-label { width: 14px; flex: 0 0 auto; font-size: 0.8em; opacity: 0.75; text-align: center; }
+        .pos-step-btn { flex: 0 0 auto; width: 28px; height: 28px; line-height: 1; border-radius: 6px; border: 1px solid var(--divider-color, #ccc); background: var(--card-background-color, #fff); color: var(--primary-text-color, #000); cursor: pointer; font-size: 1em; }
+        .pos-slider { flex: 1 1 auto; width: 100%; min-width: 0; height: 24px; }
+        .pos-val { flex: 0 0 auto; width: 44px; text-align: center; font-size: 0.78em; opacity: 0.8; }
         .stepper { display: flex; align-items: center; gap: 2px; justify-content: flex-end; }
         .stepper button { width: 22px; height: 22px; line-height: 1; border-radius: 5px; border: 1px solid var(--divider-color, #ccc); background: var(--card-background-color, #fff); color: var(--primary-text-color, #000); cursor: pointer; font-size: 0.9em; }
         .stepper span { font-size: 0.78em; width: 30px; text-align: center; opacity: 0.8; }
@@ -1304,31 +1403,43 @@ class AirConditionerCardEditor extends HTMLElement {
         const xKey = `offset_${item.key}_x`;
         const yKey = `offset_${item.key}_y`;
         const scaleKey = `offset_${item.key}_scale`;
-        const xVal = numFromCqw(c[xKey]);
-        const yVal = numFromCqw(c[yKey]);
-        const scaleVal = numScale(c[scaleKey]);
+
+        // Shared mutable state for this item's three rows — each row reads
+        // the other two's current value when it previews/commits, and
+        // updates its own after a commit so the trio always stays in sync.
+        let xVal = numFromCqw(c[xKey]);
+        let yVal = numFromCqw(c[yKey]);
+        let scaleVal = numScale(c[scaleKey]);
+
         const wrap = document.createElement('div');
         wrap.className = 'pos-item';
-        wrap.innerHTML = `<label>${label}</label>`;
-        const xInput = document.createElement('input');
-        xInput.type = 'range'; xInput.min = -30; xInput.max = 30; xInput.step = 0.5; xInput.value = xVal;
-        xInput.addEventListener('input', () => this._setField(xKey, `${xInput.value}cqw`));
-        const yInput = document.createElement('input');
-        yInput.type = 'range'; yInput.min = -30; yInput.max = 30; yInput.step = 0.5; yInput.value = yVal;
-        yInput.addEventListener('input', () => this._setField(yKey, `${yInput.value}cqw`));
 
-        const stepper = document.createElement('div');
-        stepper.className = 'stepper';
-        const minusBtn = document.createElement('button'); minusBtn.type = 'button'; minusBtn.textContent = '−';
-        const sizeLbl = document.createElement('span'); sizeLbl.textContent = `${Math.round(scaleVal * 100)}%`;
-        const plusBtn = document.createElement('button'); plusBtn.type = 'button'; plusBtn.textContent = '+';
-        minusBtn.addEventListener('click', () => this._setScale(item.key, numScale(this._config[scaleKey]) - 0.05));
-        plusBtn.addEventListener('click', () => this._setScale(item.key, numScale(this._config[scaleKey]) + 0.05));
-        stepper.appendChild(minusBtn); stepper.appendChild(sizeLbl); stepper.appendChild(plusBtn);
+        const title = document.createElement('div');
+        title.className = 'pos-item-title';
+        title.textContent = label;
+        wrap.appendChild(title);
 
-        wrap.appendChild(xInput);
-        wrap.appendChild(yInput);
-        wrap.appendChild(stepper);
+        wrap.appendChild(this._posAxisRow({
+          rowLabel: 'X', min: POS_OFFSET_MIN, max: POS_OFFSET_MAX, step: POS_OFFSET_STEP, value: xVal,
+          format: (v) => `${v}`,
+          onPreview: (v) => { xVal = v; this._previewOffset(item.key, xVal, yVal, scaleVal); },
+          onCommit: (v) => { xVal = this._setOffset(item.key, 'x', v); },
+        }));
+
+        wrap.appendChild(this._posAxisRow({
+          rowLabel: 'Y', min: POS_OFFSET_MIN, max: POS_OFFSET_MAX, step: POS_OFFSET_STEP, value: yVal,
+          format: (v) => `${v}`,
+          onPreview: (v) => { yVal = v; this._previewOffset(item.key, xVal, yVal, scaleVal); },
+          onCommit: (v) => { yVal = this._setOffset(item.key, 'y', v); },
+        }));
+
+        wrap.appendChild(this._posAxisRow({
+          rowLabel: this._t('lbl_size') || 'Size', min: POS_SCALE_MIN, max: POS_SCALE_MAX, step: POS_SCALE_STEP, value: scaleVal,
+          format: (v) => `${Math.round(v * 100)}%`,
+          onPreview: (v) => { scaleVal = v; this._previewOffset(item.key, xVal, yVal, scaleVal); },
+          onCommit: (v) => { this._setScale(item.key, v); scaleVal = clampToStep(v, POS_SCALE_MIN, POS_SCALE_MAX, POS_SCALE_STEP); },
+        }));
+
         panel.appendChild(wrap);
       });
     }
@@ -1496,6 +1607,62 @@ class AirConditionerCardEditor extends HTMLElement {
     el.className = 'section-title';
     el.textContent = text;
     return el;
+  }
+
+  // A single wide slider row for the Position tab: [label] [−] [====slider====] [+] [value].
+  // `onPreview` fires on every drag tick (cheap DOM-only update, no config
+  // commit); `onCommit` fires once the user releases the slider or clicks
+  // −/+ (writes to config). Keeping these separate is what makes the
+  // slider itself not get destroyed mid-drag — see setConfig() above.
+  _posAxisRow({ rowLabel, min, max, step, value, format, onPreview, onCommit }) {
+    const row = document.createElement('div');
+    row.className = 'pos-row';
+
+    const labelEl = document.createElement('span');
+    labelEl.className = 'pos-row-label';
+    labelEl.textContent = rowLabel;
+
+    const minusBtn = document.createElement('button');
+    minusBtn.type = 'button'; minusBtn.className = 'pos-step-btn'; minusBtn.textContent = '−';
+
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.className = 'pos-slider';
+    slider.min = min; slider.max = max; slider.step = step; slider.value = value;
+
+    const plusBtn = document.createElement('button');
+    plusBtn.type = 'button'; plusBtn.className = 'pos-step-btn'; plusBtn.textContent = '+';
+
+    const valLbl = document.createElement('span');
+    valLbl.className = 'pos-val';
+    valLbl.textContent = format(value);
+
+    let current = value;
+    const applyPreview = (v) => {
+      current = v;
+      slider.value = v;
+      valLbl.textContent = format(v);
+      onPreview(v);
+    };
+    const applyCommit = (v) => {
+      const clamped = clampToStep(v, min, max, step);
+      current = clamped;
+      slider.value = clamped;
+      valLbl.textContent = format(clamped);
+      onCommit(clamped);
+    };
+
+    slider.addEventListener('input', () => applyPreview(parseFloat(slider.value)));
+    slider.addEventListener('change', () => applyCommit(parseFloat(slider.value)));
+    minusBtn.addEventListener('click', () => applyCommit(current - step));
+    plusBtn.addEventListener('click', () => applyCommit(current + step));
+
+    row.appendChild(labelEl);
+    row.appendChild(minusBtn);
+    row.appendChild(slider);
+    row.appendChild(plusBtn);
+    row.appendChild(valLbl);
+    return row;
   }
 
   _entityField(label, key, domain) {

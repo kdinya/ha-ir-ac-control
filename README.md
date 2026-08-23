@@ -11,6 +11,18 @@ All entities are optional except the IR remote itself (needed only to
 actually send commands — without it the card still renders and can be
 positioned/styled).
 
+## Tested hardware
+
+- **IR blaster**: Broadlink RM4C mini
+- **Air conditioner**: Samsung AQO9BAN
+
+Other Broadlink models (RM4 Pro, RM Mini 3, etc.) and other AC units should
+work the same way as long as their `remote` entity supports
+`remote.send_command` / `remote.learn_command`. For Broadlink specifically,
+make sure the **Device** field on the "Entities" tab is filled in — it's the
+name Broadlink stores learned IR codes under, and `remote.learn_command`
+will fail without it.
+
 ## Features
 
 - **Visual editor** with tabs: Entities, Buttons & IR codes, Timers,
@@ -26,7 +38,9 @@ positioned/styled).
   `.woff2`) on the "Appearance" tab if you'd rather use a different one.
 - **Drag elements with mouse/touch** on the "Position" tab: a live card
   preview with handles over every element — drag to move it, use the
-  "−/+" buttons (or the sliders below the preview) to resize it.
+  "−/+" buttons on the handle to resize it, or use the wide X/Y/Size
+  sliders below the preview (each duplicated with its own "−/+" buttons)
+  for fine, precise control.
 - Server-side `timer.*` and `input_number.*` helpers — temperature and the
   sleep timer survive a browser tab reload (nothing is stored locally).
 - Optional contact/power sensor — the card detects the AC is running and
@@ -52,7 +66,11 @@ Add the card, then open its visual editor:
 
 1. **Entities** — pick your IR remote (required), plus any optional
    sensors/helpers you have (room temperature/humidity, weather, contact
-   sensor, `input_number`/`timer` helpers — see below).
+   sensor, `input_number`/`timer` helpers — see below). **For Broadlink
+   devices (e.g. RM4C mini), also fill in the "Device" field** — this is
+   the name Broadlink groups your learned codes under (e.g. `AC_Samsung`).
+   Without it, "📡 Learn" will fail with
+   `required key not provided @ data['device']`.
 2. **Buttons & IR codes** — set labels/codes for ON, OFF, the second mode
    (e.g. TURBO), and one code per temperature in your min/max range. Press
    "📡 Learn" next to a field, then press the matching button on your
