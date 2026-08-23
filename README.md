@@ -15,6 +15,11 @@ All entities are optional except the IR remote itself (needed only to
 actually send commands — without it the card still renders and can be
 positioned/styled).
 
+<p align="center">
+  <img src="images/card-off.jpg" width="45%" alt="Card, idle">
+  <img src="images/card-on.jpg" width="45%" alt="Card, running with TURBO on">
+</p>
+
 ## What you get
 
 - 🖱️ Full visual editor — no YAML required for basic setup
@@ -117,20 +122,35 @@ Add the card, then open its visual editor:
    the name Broadlink groups your learned codes under (e.g. `AC_Samsung`).
    Without it, "📡 Learn" will fail with
    `required key not provided @ data['device']`.
+
+   <img src="images/editor-entities.jpg" width="360" alt="Entities tab">
+
 2. **Buttons & IR codes** — set labels/codes for ON, OFF, the second mode
    (e.g. TURBO), and one code per temperature in your min/max range. Press
    "📡 Learn" next to a field, then press the matching button on your
    physical remote — the code fills in automatically. The +/- buttons on
    the card don't need their own codes: they always send the code for the
    temperature you land on after pressing them.
+
+   <img src="images/editor-buttons-codes.jpg" width="360" alt="Buttons & IR codes tab">
+
 3. **Timers** — 4 quick presets (in minutes) and the step size for the
    manual timer. Leave a preset field empty to disable that button on the
    panel (it shows dimmed instead of doing nothing when pressed).
+
+   <img src="images/editor-timers.jpg" width="360" alt="Timers tab">
+
 4. **Position** — drag any element on the preview to reposition it, use
    "−/+" (on the handle, or in the list below the preview) to resize it,
    or type exact values into the sliders.
-5. **Appearance** — card aspect ratio, button-panel height, and the
-   seven-segment font (built-in by default; upload your own if you like).
+
+   <img src="images/editor-position.jpg" width="360" alt="Position tab, with every draggable element labeled">
+
+5. **Appearance** — card aspect ratio, button-panel height, screen
+   brightness, and the seven-segment font (built-in by default; upload
+   your own if you like).
+
+   <img src="images/editor-appearance.jpg" width="360" alt="Appearance tab">
 
 ## Recommended helpers
 
