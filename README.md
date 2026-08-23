@@ -1,5 +1,9 @@
 # Air Conditioner Card (IR Remote)
 
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz)
+[![GitHub release](https://img.shields.io/github/v/release/kdinya/ha-ir-ac-control)](https://github.com/kdinya/ha-ir-ac-control/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Universal Home Assistant Lovelace card for controlling an air conditioner
 via any `remote` entity that supports `remote.send_command` /
 `remote.learn_command` — Broadlink, Xiaomi, ESPHome remote, etc.
@@ -10,6 +14,17 @@ manual timer with a configurable step.
 All entities are optional except the IR remote itself (needed only to
 actually send commands — without it the card still renders and can be
 positioned/styled).
+
+## What you get
+
+- 🖱️ Full visual editor — no YAML required for basic setup
+- 📡 One-click IR code learning from your physical remote
+- 🌍 Ukrainian / English / Russian interface, switchable live
+- 🔤 Seven-segment display font built in, or upload your own
+- 🖐️ Drag-and-resize element positioning right on a live preview
+- ⏱️ 4 timer presets + a manual sleep timer, backed by a real HA `timer.*` helper
+- 🌗 Auto screen dimming (by lux sensor, or automatically after sunset)
+- ⚡ Lightweight: clock pauses in background tabs, stops entirely when off-screen
 
 ## Tested hardware
 
