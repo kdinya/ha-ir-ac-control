@@ -40,7 +40,19 @@ will fail without it.
   preview with handles over every element — drag to move it, use the
   "−/+" buttons on the handle to resize it, or use the wide X/Y/Size
   sliders below the preview (each duplicated with its own "−/+" buttons)
-  for fine, precise control.
+  for fine, precise control. A ☀/🌙 toggle above the preview lets you see
+  how the screen looks both with the AC on and off while positioning.
+- **Per-element "always active" toggle** — each of the 12 positionable
+  elements has its own checkbox on the "Position" tab to keep it at full
+  brightness regardless of AC power state (clock, room temperature/
+  humidity, and outdoor weather default to this; everything else defaults
+  to dimming with the rest of the screen, but it's your choice per element).
+- **Blinking clock separator** — the `:` in the clock blinks once a second,
+  like a real digital clock.
+- **Pauses itself when not visible** — the once-a-second clock/countdown
+  tick stops while the card is scrolled out of view, the browser tab is
+  backgrounded, or the card is removed from the dashboard (via
+  `IntersectionObserver` / `visibilitychange` / `disconnectedCallback`).
 - Server-side `timer.*` and `input_number.*` helpers — temperature and the
   sleep timer survive a browser tab reload (nothing is stored locally).
 - Optional contact/power sensor — the card detects the AC is running and
@@ -108,6 +120,43 @@ Pick them on the editor's **Entities** tab (`temp_helper`, `timer_helper`).
 Without them the card still works, but temperature/timer reset on a browser
 tab reload.
 
+**Do you actually need them?**
+
+- **Temperature (`input_number`)** — no, only if you want the displayed
+  temperature to survive reloading the browser tab. The card never does
+  anything while it's closed either way (it's a piece of frontend JS, not
+  a backend integration), so there's nothing running "in the background"
+  for the temperature to interact with. Without the helper it just falls
+  back to `default_temp` on every fresh page load.
+- **Timer (`timer.*`)** — yes, if you want the sleep timer to reliably
+  finish and turn the AC off when **nobody has the dashboard open**. The
+  card itself can only react to a timer finishing while it's actually
+  mounted in an open browser tab — closing the tab doesn't cancel the HA
+  timer (it keeps counting down server-side), but nothing will send the
+  "off" IR command when it reaches zero unless something server-side does
+  it. For that, add a small automation:
+
+  ```yaml
+  automation:
+    - alias: "AC card — turn off when sleep timer finishes"
+      trigger:
+        - platform: event
+          event_type: timer.finished
+          event_data:
+            entity_id: timer.ac_card_sleep
+      action:
+        - service: remote.send_command
+          target:
+            entity_id: remote.broadlink
+          data:
+            device: air_conditioner
+            command: "off"   # or your raw/base64 code for 'off'
+  ```
+
+  (While the card *is* open, it already does this itself as a
+  best-effort — see Changelog below — so the automation is really just
+  the "nobody's watching" backstop.)
+
 ## Configuration example
 
 ```yaml
@@ -173,6 +222,47 @@ path:
 npm install
 npm test
 ```
+
+## Changelog highlights
+
+- **1.6.0** — Fixed the editor's language switch not repainting itself
+  immediately (it updated the config but the visible UI stayed on the old
+  language until something else forced a redraw). Smaller °C/°/unit
+  symbols. Clock's `:` now blinks once a second. Clock/countdown tick
+  pauses while the card isn't visible (scrolled off-screen, background
+  browser tab, or removed from the dashboard). Every positionable element
+  now has its own "always active" toggle (previously hardcoded to 4
+  specific elements) plus a ☀/🌙 preview toggle on the Position tab. The
+  sleep timer now actually turns the AC off when it finishes naturally
+  while the card is open (previously only cleared the on-screen countdown).
+- **1.5.0 / 1.4.0** — IR learn no longer hangs waiting on a
+  `persistent_notification` for the raw code (Broadlink never puts it
+  there); it stores the command name instead, which `remote.send_command`
+  already resolves via Broadlink's own storage. Position tab drag handles
+  no longer snap back after release. Button-panel height is normalized and
+  clamped so buttons respect `controls_height` instead of overflowing it.
+  Clock, room temperature/humidity, and outdoor weather set to always stay
+  visible by default.
+- **1.3.0** — Fixed the Position tab having zero effect on the actual
+  card: the `scale()` transform was nested inside `translate()`'s closing
+  parenthesis, producing invalid CSS (`translate(0cqw, 0cqw scale(1))`)
+  that browsers silently drop — nothing ever visibly moved or resized no
+  matter what the editor saved. Embedded a default seven-segment font
+  directly in the resource file plus an upload button for a custom one
+  (data: URI, no separate file to place under `www/`). Removed the unused
+  per-mode temperature and separate +/− IR codes (the +/− buttons always
+  send the code for the resulting temperature). Rebuilt the bottom button
+  row. Wrapped the whole script in an IIFE so none of its top-level
+  functions/constants leak onto `window`, where they could silently
+  collide with an unrelated script's same-named globals.
+- **1.2.x** — Renamed the custom element tag from `air-conditioner-card`
+  to `ha-ir-ac-control-card` (the old name collided with unrelated
+  legacy/local cards using the same generic tag — whichever script
+  registered it first silently won, regardless of what HACS had
+  installed). Stopped the editor from rebuilding its entire DOM on every
+  `hass` update (HA calls this on nearly every state change anywhere in
+  the system), which used to close the entity-picker dropdown mid-keystroke
+  and abort in-progress Position-tab drags.
 
 ## Roadmap ideas
 

@@ -24,7 +24,7 @@
  * with any other Lovelace resource loaded on the same dashboard.
  */
 (function () {
-const CARD_VERSION = '1.5.0';
+const CARD_VERSION = '1.6.0';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // List of screen elements whose position/size can be adjusted in the editor.
@@ -59,6 +59,34 @@ const POSITIONABLE_DATA_EL = {
   fan: 'fan-group',
   turbo_lcd: 'turbo-lcd-block',
 };
+
+// CSS custom property that controls each element's opacity when the AC is
+// off. Several elements used to share one variable (fan/turbo badge both
+// rode on --mode-op, timer clock/caption shared --timer-op) which made a
+// per-element "always active" toggle impossible — every element now gets
+// its own variable.
+const POSITIONABLE_OPACITY_VAR = {
+  mode: '--mode-op',
+  sensors: '--sensors-op',
+  ext_temp: '--ext-temp-op',
+  humidity: '--humidity-op',
+  main_temp: '--main-temp-op',
+  time: '--time-op',
+  weather: '--weather-op',
+  wind: '--wind-op',
+  timer_clock: '--timer-clock-op',
+  timer_preset: '--timer-preset-op',
+  fan: '--fan-op',
+  turbo_lcd: '--turbo-op',
+};
+
+// Which elements default to "always fully visible" (ignores AC power state)
+// — matches the old hardcoded behavior (clock, room temp/humidity, outdoor
+// weather) so upgrading doesn't change anyone's existing look. Every
+// element is now individually toggleable in the Position tab regardless.
+const DEFAULT_ALWAYS_ON = {};
+POSITIONABLE_ELEMENTS.forEach((item) => { DEFAULT_ALWAYS_ON[item.key] = false; });
+Object.assign(DEFAULT_ALWAYS_ON, { time: true, ext_temp: true, humidity: true, weather: true });
 
 const DEFAULT_OFFSETS = {
   mode_x: '0cqw', mode_y: '0cqw',
@@ -198,6 +226,9 @@ const I18N = {
     lbl_fan: 'Іконка вентилятора',
     lbl_turbo_lcd: 'Бейдж режиму 2 (TURBO/ECO)',
     lbl_size: 'Розмір',
+    lbl_always_on: 'Завжди активний (темний, ігнорує стан живлення)',
+    btn_preview_dim: '🌙 Прев\'ю: вимкнено',
+    btn_preview_bright: '☀ Прев\'ю: увімкнено',
     learn_btn: '📡 Навчити',
     learn_wait: '⏳ Чекаю сигнал…',
     learn_ok: '✅ Записано',
@@ -268,6 +299,9 @@ const I18N = {
     lbl_fan: 'Fan icon',
     lbl_turbo_lcd: 'Mode 2 badge (TURBO/ECO)',
     lbl_size: 'Size',
+    lbl_always_on: 'Always active (dark, ignores power state)',
+    btn_preview_dim: '🌙 Preview: off',
+    btn_preview_bright: '☀ Preview: on',
     learn_btn: '📡 Learn',
     learn_wait: '⏳ Waiting for signal…',
     learn_ok: '✅ Saved',
@@ -338,6 +372,9 @@ const I18N = {
     lbl_fan: 'Иконка вентилятора',
     lbl_turbo_lcd: 'Бейдж режима 2 (TURBO/ECO)',
     lbl_size: 'Размер',
+    lbl_always_on: 'Всегда активен (тёмный, игнорирует питание)',
+    btn_preview_dim: '🌙 Превью: выключено',
+    btn_preview_bright: '☀ Превью: включено',
     learn_btn: '📡 Обучить',
     learn_wait: '⏳ Жду сигнал…',
     learn_ok: '✅ Записано',
@@ -388,13 +425,50 @@ class AirConditionerCard extends HTMLElement {
 
   connectedCallback() {
     if (this._initialized) this._updateClock();
-    if (this._timeTimer) clearInterval(this._timeTimer);
-    this._timeTimer = setInterval(() => this._updateClock(), 1000);
+    if (!this._visibilityHandler) {
+      this._visibilityHandler = () => this._syncClockRunning();
+      document.addEventListener('visibilitychange', this._visibilityHandler);
+    }
+    // Stop the once-a-second clock/countdown tick when the card is scrolled
+    // out of view on an otherwise-visible dashboard, or when the browser tab
+    // itself is backgrounded — no point re-rendering a clock nobody can see.
+    // Full removal from the DOM (switching dashboards) is still handled by
+    // disconnectedCallback below.
+    if (window.IntersectionObserver && !this._io) {
+      this._io = new IntersectionObserver((entries) => {
+        const entry = entries[entries.length - 1];
+        this._isInViewport = entry ? entry.isIntersecting : true;
+        this._syncClockRunning();
+      }, { threshold: 0 });
+      this._io.observe(this);
+    } else {
+      this._isInViewport = true;
+    }
+    this._syncClockRunning();
+  }
+
+  _syncClockRunning() {
+    const visible = (this._isInViewport ?? true) && document.visibilityState !== 'hidden';
+    if (visible) {
+      if (!this._timeTimer) {
+        this._updateClock();
+        this._timeTimer = setInterval(() => this._updateClock(), 1000);
+      }
+    } else if (this._timeTimer) {
+      clearInterval(this._timeTimer);
+      this._timeTimer = null;
+    }
   }
 
   disconnectedCallback() {
     if (this._timeTimer) clearInterval(this._timeTimer);
+    this._timeTimer = null;
     if (this._timerTimeout) clearTimeout(this._timerTimeout);
+    if (this._io) { this._io.disconnect(); this._io = null; }
+    if (this._visibilityHandler) {
+      document.removeEventListener('visibilitychange', this._visibilityHandler);
+      this._visibilityHandler = null;
+    }
   }
 
   _updateClock() {
@@ -404,9 +478,14 @@ class AirConditionerCard extends HTMLElement {
     const timerPresetBg = this._el('timer-preset');
 
     const now = new Date();
-    const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    const timeEl = this._el('time-num');
-    if (timeEl) timeEl.textContent = timeStr;
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const hhEl = this._el('time-hh');
+    const mmEl = this._el('time-mm');
+    const colonEl = this._el('time-colon');
+    if (hhEl) hhEl.textContent = hh;
+    if (mmEl) mmEl.textContent = mm;
+    if (colonEl) colonEl.style.opacity = now.getSeconds() % 2 === 0 ? '1' : '0';
 
     if (this._timerEditMode) {
       if (countdownClock) countdownClock.textContent = `${this._timerEditValue}:00`;
@@ -473,6 +552,21 @@ class AirConditionerCard extends HTMLElement {
       scales[`offset_${key}_scale`] = numScale(config[`offset_${key}_scale`] ?? DEFAULT_SCALES[key]);
     }
 
+    const opacityOff = {};
+    const opacityAlways = {};
+    for (const item of POSITIONABLE_ELEMENTS) {
+      const key = item.key;
+      // Backward compatibility: fan/turbo_lcd used to ride on opacity_off_mode,
+      // and timer_clock/timer_preset used to share a single opacity_off_timer —
+      // fall back to those old values for configs saved before this version.
+      const legacyFallback =
+        key === 'fan' || key === 'turbo_lcd' ? (config.opacity_off_mode ?? '0.35') :
+        key === 'timer_clock' || key === 'timer_preset' ? (config.opacity_off_timer ?? '0.35') :
+        '0.35';
+      opacityOff[`opacity_off_${key}`] = config[`opacity_off_${key}`] ?? legacyFallback;
+      opacityAlways[`opacity_always_${key}`] = config[`opacity_always_${key}`] ?? DEFAULT_ALWAYS_ON[key];
+    }
+
     this.config = {
       ...config,
 
@@ -514,15 +608,20 @@ class AirConditionerCard extends HTMLElement {
       // but 0, which happens to be valid unitless CSS on its own.
       controls_height: pxCqw(config.controls_height || '12cqw'),
 
-      opacity_off_main_temp: config.opacity_off_main_temp || '0.35',
-      opacity_off_ext_temp: config.opacity_off_ext_temp || '0.35',
-      opacity_off_humidity: config.opacity_off_humidity || '0.35',
-      opacity_off_sensors: config.opacity_off_sensors || '0.35',
-      opacity_off_mode: config.opacity_off_mode || '0.35',
-      opacity_off_time: config.opacity_off_time || '0.35',
-      opacity_off_timer: config.opacity_off_timer || '0.35',
-      opacity_off_weather: config.opacity_off_weather || '0.35',
-      opacity_off_wind: config.opacity_off_wind || '0.35',
+      opacity_off_main_temp: opacityOff.opacity_off_main_temp,
+      opacity_off_ext_temp: opacityOff.opacity_off_ext_temp,
+      opacity_off_humidity: opacityOff.opacity_off_humidity,
+      opacity_off_sensors: opacityOff.opacity_off_sensors,
+      opacity_off_mode: opacityOff.opacity_off_mode,
+      opacity_off_time: opacityOff.opacity_off_time,
+      opacity_off_timer_clock: opacityOff.opacity_off_timer_clock,
+      opacity_off_timer_preset: opacityOff.opacity_off_timer_preset,
+      opacity_off_weather: opacityOff.opacity_off_weather,
+      opacity_off_wind: opacityOff.opacity_off_wind,
+      opacity_off_fan: opacityOff.opacity_off_fan,
+      opacity_off_turbo_lcd: opacityOff.opacity_off_turbo_lcd,
+
+      ...opacityAlways,
 
       ...offsets,
       ...scales,
@@ -575,6 +674,7 @@ class AirConditionerCard extends HTMLElement {
     }
 
     // --- server-side timer ---
+    const prevTimerState = this._timerStateObj; // snapshot before we overwrite it below
     const timerId = this.config.timer_helper;
     const timerState = timerId ? hass.states[timerId] : null;
     if (timerState) {
@@ -589,6 +689,22 @@ class AirConditionerCard extends HTMLElement {
     } else {
       this._timerStateObj = null;
       this._local.ha_timer_active_minutes = null;
+    }
+
+    // Best-effort: if the sleep timer just finished naturally (was 'active',
+    // now isn't, and we actually reached its finish time rather than being
+    // cancelled early), turn the AC off. This only works while this card
+    // happens to be open in a browser tab — for a reliable turn-off
+    // regardless of whether anyone's looking at a dashboard, add the
+    // timer.finished automation described in the README.
+    if (
+      prevTimerState && prevTimerState.state === 'active' &&
+      timerState && timerState.state !== 'active' &&
+      Date.now() >= new Date(prevTimerState.attributes.finishes_at).getTime() - 1500
+    ) {
+      this._local.power = false;
+      this._local.mode2 = false;
+      this._sendIR('off');
     }
 
     if (this._lastConfirmedPower === null) this._lastConfirmedPower = isContactOpen;
@@ -821,7 +937,7 @@ class AirConditionerCard extends HTMLElement {
                 <span class="seg temp-big" data-el="temp-num">${c.default_temp}</span><span class="temp-degree">°C</span>
               </div>
               <div class="screen-time" data-el="time-display" style="transform: translate(calc(-50% + ${off('time_x')}), calc(-50% + ${off('time_y')}))${scl('time')};">
-                <span class="seg time-val" data-el="time-num">00:00</span>
+                <span class="seg time-val" data-el="time-num"><span data-el="time-hh">00</span><span class="time-colon" data-el="time-colon">:</span><span data-el="time-mm">00</span></span>
               </div>
 
               <div class="screen-bottom">
@@ -896,21 +1012,15 @@ class AirConditionerCard extends HTMLElement {
     const c = this.config;
 
     const host = this.shadowRoot.host;
-    const opacityVars = {
-      '--mode-op': c.opacity_off_mode, '--sensors-op': c.opacity_off_sensors,
-      '--ext-temp-op': c.opacity_off_ext_temp, '--humidity-op': c.opacity_off_humidity,
-      '--main-temp-op': c.opacity_off_main_temp, '--time-op': c.opacity_off_time,
-      '--timer-op': c.opacity_off_timer, '--weather-op': c.opacity_off_weather, '--wind-op': c.opacity_off_wind,
-    };
     const isTimerActive = this._timerStateObj && this._timerStateObj.state === 'active';
-    // These elements always look "active" (dark, full opacity) no matter the
-    // AC power state: clock, room temp/humidity, outdoor weather.
-    const ALWAYS_ON_VARS = new Set(['--time-op', '--ext-temp-op', '--humidity-op', '--weather-op']);
-    for (const [cssVar, offValue] of Object.entries(opacityVars)) {
+    for (const item of POSITIONABLE_ELEMENTS) {
+      const key = item.key;
+      const cssVar = POSITIONABLE_OPACITY_VAR[key];
+      const offValue = c[`opacity_off_${key}`];
       let finalVal = power ? '1' : offValue;
-      if (ALWAYS_ON_VARS.has(cssVar)) finalVal = '1';
-      if (this._timerEditMode && (cssVar === '--timer-op' || cssVar === '--main-temp-op')) finalVal = '1';
-      if (isTimerActive && cssVar === '--timer-op') finalVal = '1';
+      if (c[`opacity_always_${key}`]) finalVal = '1';
+      if (this._timerEditMode && (key === 'timer_clock' || key === 'timer_preset' || key === 'main_temp')) finalVal = '1';
+      if (isTimerActive && (key === 'timer_clock' || key === 'timer_preset')) finalVal = '1';
       host.style.setProperty(cssVar, finalVal);
     }
 
@@ -1019,14 +1129,15 @@ class AirConditionerCard extends HTMLElement {
     .wind-unit { font-family: -apple-system, sans-serif; font-size: calc(3.2cqw * 0.6); font-weight: 700; color: #1c2820; opacity: 0.8; margin-left: 0.2cqw; }
     .screen-center { position: absolute; top: 48%; left: 50%; display: flex; justify-content: center; align-items: baseline; gap: 0.4cqw; opacity: var(--main-temp-op); transition: opacity 0.3s; z-index: 5; }
     .temp-big { font-size: 14.5cqw; letter-spacing: -0.5cqw; text-shadow: 0 0.2cqw 0.4cqw rgba(0,0,0,0.15); }
-    .temp-degree { font-family: -apple-system, sans-serif; font-size: 4.2cqw; font-weight: 700; color: #1c2820; opacity: 0.8; }
+    .temp-degree { font-family: -apple-system, sans-serif; font-size: 2.8cqw; font-weight: 700; color: #1c2820; opacity: 0.8; }
     .screen-time { position: absolute; top: 68%; left: 50%; display: flex; justify-content: center; align-items: center; opacity: var(--time-op); transition: opacity 0.3s; z-index: 4; }
     .time-val { font-size: 3.8cqw; letter-spacing: 0.05cqw; text-shadow: 0 0.1cqw 0.3cqw rgba(0,0,0,0.12); }
-    .screen-timer-clock { position: absolute; top: 0; left: 50%; display: flex; align-items: center; font-size: 2.8cqw; font-weight: 900; letter-spacing: 0.03cqw; color: #1c2820; opacity: var(--timer-op); transition: opacity 0.3s; z-index: 7; }
-    .screen-timer-preset { position: absolute; top: 0; left: 50%; display: flex; align-items: center; font-size: 2.0cqw; font-weight: 700; letter-spacing: 0.01cqw; font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1c2820; opacity: var(--timer-op); transition: opacity 0.3s; z-index: 7; }
+    .time-colon { transition: opacity 0.15s ease; }
+    .screen-timer-clock { position: absolute; top: 0; left: 50%; display: flex; align-items: center; font-size: 2.8cqw; font-weight: 900; letter-spacing: 0.03cqw; color: #1c2820; opacity: var(--timer-clock-op); transition: opacity 0.3s; z-index: 7; }
+    .screen-timer-preset { position: absolute; top: 0; left: 50%; display: flex; align-items: center; font-size: 2.0cqw; font-weight: 700; letter-spacing: 0.01cqw; font-family: -apple-system, BlinkMacSystemFont, sans-serif; color: #1c2820; opacity: var(--timer-preset-op); transition: opacity 0.3s; z-index: 7; }
     .timer-badge--on { opacity: 1; }
     .screen-bottom { position: absolute; bottom: 1.6cqw; left: 2.5cqw; right: 2.5cqw; display: flex; align-items: flex-end; justify-content: space-between; }
-    .fan-group { display: flex; align-items: center; gap: 1.2cqw; opacity: var(--mode-op); transition: opacity 0.3s; }
+    .fan-group { display: flex; align-items: center; gap: 1.2cqw; opacity: var(--fan-op); transition: opacity 0.3s; }
     .fan-wrap { width: 5.5cqw; height: 5.5cqw; color: #1c2820; transform-origin: center center; }
     .fan-wrap svg { width: 100%; height: 100%; }
     .fan-wrap.spinning { animation: spin 1.6s linear infinite; }
@@ -1034,7 +1145,7 @@ class AirConditionerCard extends HTMLElement {
     .fan-bars { display: flex; align-items: flex-end; gap: 0.5cqw; height: 3cqw; }
     .bar { width: 0.85cqw; background: #1c2820; border-radius: 0.4cqw; }
     .b1{height:0.9cqw} .b2{height:1.7cqw} .b3{height:2.4cqw} .b4{height:3cqw}
-    .bottom-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3cqw; opacity: var(--mode-op); transition: opacity 0.3s; }
+    .bottom-right { display: flex; flex-direction: column; align-items: flex-end; gap: 0.3cqw; opacity: var(--turbo-op); transition: opacity 0.3s; }
     .turbo-badge { font-size: 2.1cqw; font-weight: 900; letter-spacing: 0.3cqw; font-family: -apple-system, sans-serif; color: #1c2820; opacity: 0.1; transition: opacity 0.3s; }
     .turbo-badge--on { opacity: 1; text-shadow: 0 0 1cqw rgba(80,140,220,0.5); }
     .controls { display: flex; align-items: center; justify-content: space-between; width: 100%; height: ${this.config.controls_height}; overflow: hidden; }
@@ -1140,6 +1251,15 @@ class AirConditionerCardEditor extends HTMLElement {
   }
 
   _t(key) { return translate(this._config?.lang, key); }
+
+  // Language changes need to repaint immediately (there's no drag gesture in
+  // progress that a render could interrupt, unlike sliders/typing), so this
+  // bypasses the suppress-next-render trick that _setField relies on.
+  _setLang(lang) {
+    this._config = { ...this._config, lang };
+    this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config }, bubbles: true, composed: true }));
+    this._render();
+  }
 
   _emitChange(newConfig) {
     this._config = newConfig;
@@ -1273,6 +1393,7 @@ class AirConditionerCardEditor extends HTMLElement {
         .pos-item { padding: 10px 0 14px; border-bottom: 1px solid var(--divider-color, #ccc); }
         .pos-item:last-child { border-bottom: none; }
         .pos-item-title { font-size: 0.9em; font-weight: 600; margin-bottom: 8px; }
+        .pos-item-always { display: flex; align-items: center; gap: 6px; font-size: 0.82em; opacity: 0.85; margin-bottom: 8px; cursor: pointer; }
         .pos-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
         .pos-row:last-child { margin-bottom: 0; }
         .pos-row-label { width: 14px; flex: 0 0 auto; font-size: 0.8em; opacity: 0.75; text-align: center; }
@@ -1284,6 +1405,8 @@ class AirConditionerCardEditor extends HTMLElement {
         .stepper span { font-size: 0.78em; width: 30px; text-align: center; opacity: 0.8; }
         .drag-canvas-wrap { position: relative; width: 100%; margin-bottom: 14px; border-radius: 10px; background: var(--secondary-background-color, #222); }
         .drag-canvas-wrap ha-ir-ac-control-card { display: block; pointer-events: none; }
+        .drag-dim-toggle { position: absolute; top: 6px; right: 6px; z-index: 20; border: 1px solid rgba(255,255,255,0.35); border-radius: 14px; padding: 3px 10px; font-size: 11px; background: rgba(0,0,0,0.55); color: #fff; cursor: pointer; }
+        .drag-dim-toggle.active { background: #03a9f4; border-color: #03a9f4; }
         .drag-handle { position: absolute; border: 1.5px dashed rgba(3,169,244,0.9); border-radius: 6px; background: rgba(3,169,244,0.12); cursor: grab; touch-action: none; box-sizing: border-box; }
         .drag-handle:hover, .drag-handle.dragging { background: rgba(3,169,244,0.28); border-color: #03a9f4; }
         .drag-handle .handle-label { position: absolute; top: -1.4em; left: 0; font-size: 10px; white-space: nowrap; background: rgba(3,169,244,0.95); color: #fff; padding: 1px 5px; border-radius: 4px; pointer-events: none; }
@@ -1306,7 +1429,7 @@ class AirConditionerCardEditor extends HTMLElement {
     `;
 
     this.querySelectorAll('.lang-btn').forEach((el) => {
-      el.addEventListener('click', () => this._setField('lang', el.dataset.lang));
+      el.addEventListener('click', () => this._setLang(el.dataset.lang));
     });
 
     this.querySelectorAll('.tab').forEach((el) => {
@@ -1410,6 +1533,17 @@ class AirConditionerCardEditor extends HTMLElement {
         title.textContent = label;
         wrap.appendChild(title);
 
+        const alwaysKey = `opacity_always_${item.key}`;
+        const alwaysRow = document.createElement('label');
+        alwaysRow.className = 'pos-item-always';
+        const alwaysChk = document.createElement('input');
+        alwaysChk.type = 'checkbox';
+        alwaysChk.checked = !!c[alwaysKey];
+        alwaysChk.addEventListener('change', () => this._setField(alwaysKey, alwaysChk.checked));
+        alwaysRow.appendChild(alwaysChk);
+        alwaysRow.appendChild(document.createTextNode(' ' + (this._t('lbl_always_on') || 'Always active (dark, ignores AC power)')));
+        wrap.appendChild(alwaysRow);
+
         wrap.appendChild(this._posAxisRow({
           rowLabel: 'X', min: POS_OFFSET_MIN, max: POS_OFFSET_MAX, step: POS_OFFSET_STEP, value: xVal,
           format: (v) => `${v}`,
@@ -1483,20 +1617,42 @@ class AirConditionerCardEditor extends HTMLElement {
     const liveCard = document.createElement('ha-ir-ac-control-card');
     wrap.appendChild(liveCard);
 
+    // Lets you preview how the screen looks with the AC off (dimmed) while
+    // still positioning elements — separate from each element's own
+    // "always active" checkbox below, which is what actually gets saved.
+    const dimBtn = document.createElement('button');
+    dimBtn.type = 'button';
+    dimBtn.className = 'drag-dim-toggle';
+    const updateDimBtnLabel = () => {
+      dimBtn.textContent = this._previewDim ? (this._t('btn_preview_bright') || '☀ Preview: on') : (this._t('btn_preview_dim') || '🌙 Preview: off');
+      dimBtn.classList.toggle('active', !!this._previewDim);
+    };
+    updateDimBtnLabel();
+    wrap.appendChild(dimBtn);
+
     const previewConfig = { ...this._config, room_temp_sensor: this._config.room_temp_sensor || '' };
     liveCard.setConfig(previewConfig);
     liveCard.hass = this._hass;
 
-    // Force an "on" state so every element is visible and easy to drag.
-    requestAnimationFrame(() => {
+    const applyPreviewState = () => {
       try {
-        liveCard._local.power = true;
+        liveCard._local.power = !this._previewDim;
         liveCard._local.temp = previewConfig.default_temp || 24;
-        liveCard._sensors = { roomTemp: '24.0', roomHum: '48', outTemp: '19.0', outSecondary: '3.2', isRunning: true };
+        liveCard._sensors = { roomTemp: '24.0', roomHum: '48', outTemp: '19.0', outSecondary: '3.2', isRunning: !this._previewDim };
         liveCard._render();
       } catch (e) { /* ignore */ }
       this._positionDragHandles(wrap, liveCard);
+    };
+
+    dimBtn.addEventListener('click', () => {
+      this._previewDim = !this._previewDim;
+      updateDimBtnLabel();
+      applyPreviewState();
     });
+
+    // Force a starting state (on by default) so every element is visible
+    // and easy to drag the first time this tab opens.
+    requestAnimationFrame(applyPreviewState);
 
     // Rebuild handles on resize; disconnect any observer from a previous render.
     if (this._dragResizeObserver) { this._dragResizeObserver.disconnect(); this._dragResizeObserver = null; }

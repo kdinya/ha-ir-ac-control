@@ -85,6 +85,22 @@ langBtnEn.click();
 console.log('lang switched to', currentConfig.lang);
 if (currentConfig.lang !== 'en') throw new Error('lang switch failed');
 
+// Regression check: clicking a language button must repaint the editor's
+// OWN DOM immediately, not just update the config value. Previously
+// _setField()'s "suppress the next echoed render" mechanism (added to stop
+// Position-tab sliders from jumping mid-drag) silently ate the language
+// switch's render too, so the editor kept showing the old language until
+// some unrelated action (e.g. a tab click) happened to force a repaint.
+const activeLangBtn = editor.querySelector('.lang-btn--active');
+if (!activeLangBtn || activeLangBtn.dataset.lang !== 'en') {
+  throw new Error('lang switch did not repaint the language bar itself');
+}
+const entitiesTabBtn = editor.querySelector('.tab[data-tab="entities"]');
+if (!entitiesTabBtn || entitiesTabBtn.textContent.trim() !== 'Entities') {
+  throw new Error(`lang switch did not repaint tab labels — got "${entitiesTabBtn && entitiesTabBtn.textContent.trim()}"`);
+}
+console.log('lang-switch repaint OK: editor DOM updated immediately, not just config');
+
 // --- 3. Every editor tab renders without throwing and has expected content. ---
 const expectedTabs = ['entities', 'commands', 'timers', 'position', 'appearance'];
 for (const tabName of expectedTabs) {
