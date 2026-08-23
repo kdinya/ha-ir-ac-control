@@ -17,6 +17,19 @@ global.ResizeObserver = dom.window.ResizeObserver;
 const code = fs.readFileSync(path.join(__dirname, '..', 'air-conditioner-card.js'), 'utf8');
 dom.window.eval(code);
 
+// --- 0. Re-evaluating the same script (simulates HA "Reload resources"
+//     without a full browser refresh) must NOT throw. ---
+try {
+  dom.window.eval(code);
+  console.log('Double-load guard OK: no "already defined" exception');
+} catch (e) {
+  throw new Error('Double-load of the resource threw: ' + e.message);
+}
+if (window.customCards.filter((c) => c.type === 'air-conditioner-card').length !== 1) {
+  throw new Error('window.customCards got duplicated on double-load');
+}
+console.log('customCards duplicate-guard OK');
+
 const fakeHass = {
   states: {
     'remote.broadlink': { state: 'idle' },

@@ -1,39 +1,39 @@
 /**
- * Air Conditioner Card (Universal IR/Broadlink Edition) v1.1.0
+ * Air Conditioner Card (Universal IR/Broadlink Edition) v1.1.1
  * https://github.com/kdinya/ha-ir-ac-control
  *
- * Універсальна Lovelace-картка керування кондиціонером через ІЧ-пульт
- * (Broadlink remote.send_command / remote.learn_command).
+ * Universal Home Assistant Lovelace card for controlling an air conditioner
+ * via an IR remote (Broadlink remote.send_command / remote.learn_command).
  *
- * Базується на приватній картці air-conditioner-card v3.25 — той самий
- * дизайн, розташування елементів, семисегментний шрифт та поведінка,
- * але з повністю опційними сутностями та візуальним редактором:
- *  - мовна панель (uk/en/ru) вгорі редактора — переклад застосовується
- *    одразу і в редакторі, і на картці.
- *  - вкладка "Сутності": пульт, room-температура/вологість, погода
- *    (температура + вітер/вологість на вулиці), контактний датчик — усе
- *    опційне, крім пульта потрібного лише для кнопок IR.
- *  - вкладка "Кнопки та IR-коди": назви кнопок ON/OFF, режим 2
- *    (TURBO/ECO/довільна назва), коди для кожної температури в діапазоні
- *    temp_min..temp_max, окремі коди +/- (опційно). Біля кожного поля —
- *    кнопка "Навчити", яка чекає сигнал з фізичного пульта через
- *    remote.learn_command і сама підставляє код.
- *  - вкладка "Таймери": 4 пресети (T-кнопки) + крок ручного таймера.
- *  - вкладка "Позиція": живе перетягування елементів мишею/пальцем прямо
- *    на превʼю картки + кнопки −/+ для зміни розміру (40–300%), а також
- *    точні повзунки X/Y/розмір як резервний варіант.
- *  - вкладка "Вигляд": аспект картки, розміри шрифтів.
+ * Every entity is optional except the remote (needed only to actually send
+ * IR commands), and everything is configurable through a visual editor:
+ *  - a language bar (uk/en/ru) at the top of the editor — the translation
+ *    applies immediately, both in the editor and on the card itself.
+ *  - "Entities" tab: remote, room temperature/humidity, weather
+ *    (outdoor temperature + wind/humidity), contact sensor — all optional
+ *    except the remote, which is only needed for the IR buttons.
+ *  - "Buttons & IR codes" tab: ON/OFF button labels, second mode
+ *    (TURBO/ECO/custom name), a code for every temperature in the
+ *    temp_min..temp_max range, separate +/- codes (optional). Every field
+ *    has a "Learn" button next to it that waits for a signal from the
+ *    physical remote via remote.learn_command and fills the code in
+ *    automatically.
+ *  - "Timers" tab: 4 presets (T buttons) + the manual timer step.
+ *  - "Position" tab: drag elements live with mouse/touch right on the card
+ *    preview, plus −/+ buttons to resize them (40–300%), and precise X/Y/
+ *    size sliders as a fallback.
+ *  - "Appearance" tab: card aspect ratio, font sizes.
  *
- * Таймер вмикання/вимикання зберігається на боці Home Assistant у
- * timer.* helper (не в браузері) — переживає перезавантаження вкладки.
- * Поточна температура — у input_number helper з тієї ж причини.
+ * The on/off timer is stored server-side in a Home Assistant timer.*
+ * helper (not in the browser) — it survives a tab reload. The current
+ * temperature is stored in an input_number helper for the same reason.
  */
 
-const CARD_VERSION = '1.1.0';
+const CARD_VERSION = '1.1.1';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // ---------------------------------------------------------------------------
-// Допоміжне: перелік елементів екрана, положення яких можна рухати X/Y.
+// Helper: list of screen elements whose X/Y position can be moved.
 // ---------------------------------------------------------------------------
 const POSITIONABLE_ELEMENTS = [
   { key: 'mode',          label: 'Іконка режиму / назва' },
@@ -50,8 +50,8 @@ const POSITIONABLE_ELEMENTS = [
   { key: 'turbo_lcd',     label: 'Бейдж режиму 2 (TURBO/ECO)' },
 ];
 
-// Відповідність ключа позиціонованого елемента до атрибута data-el в DOM картки
-// (потрібно для розрахунку координат drag-хендлів у редакторі).
+// Maps a positionable element's key to its data-el attribute in the card DOM
+// (needed to compute drag-handle coordinates in the editor).
 const POSITIONABLE_DATA_EL = {
   mode: 'mode-row',
   sensors: 'status-block',
@@ -82,12 +82,12 @@ const DEFAULT_OFFSETS = {
   wind_x: '0cqw', wind_y: '0cqw',
 };
 
-// Масштаб (розмір) кожного елемента, керується кнопками −/+ в редакторі.
+// Scale (size) of each element, controlled by the −/+ buttons in the editor.
 const DEFAULT_SCALES = {};
 POSITIONABLE_ELEMENTS.forEach((item) => { DEFAULT_SCALES[item.key] = 1; });
 
 function pxCqw(v) {
-  // Приймає '3', '3cqw', '-1.5cqw' -> завжди повертає рядок з cqw
+  // Accepts '3', '3cqw', '-1.5cqw' -> always returns a string with cqw
   if (v === undefined || v === null || v === '') return '0cqw';
   const s = String(v).trim();
   return s.endsWith('cqw') ? s : `${s}cqw`;
@@ -102,7 +102,7 @@ function numScale(v) {
 }
 
 // ---------------------------------------------------------------------------
-// Локалізація (uk / en / ru) — і для картки, і для візуального редактора.
+// Localization (uk / en / ru) — for both the card and the visual editor.
 // ---------------------------------------------------------------------------
 const LANGS = ['uk', 'en', 'ru'];
 const LANG_NAMES = { uk: 'Українська', en: 'English', ru: 'Русский' };
@@ -326,7 +326,7 @@ function translate(lang, key) {
 }
 
 // ---------------------------------------------------------------------------
-// Картка
+// Card
 // ---------------------------------------------------------------------------
 class AirConditionerCard extends HTMLElement {
   constructor() {
@@ -413,7 +413,7 @@ class AirConditionerCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config || typeof config !== 'object') throw new Error('Некоректний конфіг картки');
+    if (!config || typeof config !== 'object') throw new Error('Invalid card configuration');
 
     const prevLang = this.config?.lang;
     const nextLang = LANGS.includes(config.lang) ? config.lang : 'uk';
@@ -513,17 +513,17 @@ class AirConditionerCard extends HTMLElement {
       return s === '' || s === 'unavailable' || s === 'unknown';
     };
 
-    // --- контактний/силовий датчик (опційний) ---
+    // --- contact/power sensor (optional) ---
     const binEntity = this.config.binary_sensor;
     const isContactOpen = binEntity ? hass.states[binEntity]?.state === 'on' : this._local.power;
 
-    // --- температура/вологість в кімнаті (опційні) ---
+    // --- room temperature/humidity (optional) ---
     const roomTemp = isUnavailable(this.config.room_temp_sensor) ? '-' : parseFloat(get(this.config.room_temp_sensor)).toFixed(1);
     const roomHum = this.config.room_humidity_sensor
       ? (isUnavailable(this.config.room_humidity_sensor) ? '-' : (parseFloat(get(this.config.room_humidity_sensor)) || 0).toFixed(0))
       : '--';
 
-    // --- погода на вулиці (опційна): або weather_entity, або окремий sensor ---
+    // --- outdoor weather (optional): either weather_entity or a separate sensor ---
     let outTemp = '-';
     let outSecondary = '-';
     const wEnt = this.config.weather_entity;
@@ -545,7 +545,7 @@ class AirConditionerCard extends HTMLElement {
       }
     }
 
-    // --- серверний таймер ---
+    // --- server-side timer ---
     const timerId = this.config.timer_helper;
     const timerState = timerId ? hass.states[timerId] : null;
     if (timerState) {
@@ -1045,18 +1045,32 @@ class AirConditionerCard extends HTMLElement {
   static getStubConfig() { return { remote_entity: '', device: '', room_temp_sensor: '' }; }
 }
 
-customElements.define('air-conditioner-card', AirConditionerCard);
+// Guarded define: if this resource gets re-evaluated in the same browser tab
+// (e.g. HA's "Reload resources" without a full page reload, or the resource
+// being included twice), a plain customElements.define() throws
+// "has already been used with this registry" and — because that happens
+// mid-file — every class registered further below (the editor!) never gets
+// (re)defined, so the tab silently keeps running the old code even though
+// the file on disk is up to date. Guarding avoids the hard crash so the
+// rest of the file still runs; a genuine full browser reload is still
+// required to actually pick up new class code (browsers cannot redefine an
+// existing custom element tag within the same page session).
+if (!customElements.get('air-conditioner-card')) {
+  customElements.define('air-conditioner-card', AirConditionerCard);
+}
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: 'air-conditioner-card',
-  name: 'Air Conditioner Card (IR/Broadlink)',
-  description: 'Універсальна картка керування кондиціонером через ІЧ-пульт (Broadlink), з навчанням кодів у редакторі.',
-  preview: false,
-});
+if (!window.customCards.some((c) => c.type === 'air-conditioner-card')) {
+  window.customCards.push({
+    type: 'air-conditioner-card',
+    name: 'Air Conditioner Card (IR/Broadlink)',
+    description: 'Universal Lovelace card to control an air conditioner via an IR remote (Broadlink), with in-editor IR code learning.',
+    preview: false,
+  });
+}
 
 // ---------------------------------------------------------------------------
-// Візуальний редактор
+// Visual editor
 // ---------------------------------------------------------------------------
 class AirConditionerCardEditor extends HTMLElement {
   constructor() {
@@ -1349,8 +1363,8 @@ class AirConditionerCardEditor extends HTMLElement {
   }
 
   // -------------------------------------------------------------------------
-  // Живий попередній перегляд картки з можливістю перетягування елементів
-  // мишею/пальцем прямо на екрані, і зміни розміру кнопками "−/+".
+  // Live card preview that supports dragging elements with mouse/touch
+  // right on the screen, and resizing them with "−/+" buttons.
   // -------------------------------------------------------------------------
   _buildDragCanvas() {
     const wrap = document.createElement('div');
@@ -1361,13 +1375,13 @@ class AirConditionerCardEditor extends HTMLElement {
 
     const previewConfig = {
       ...this._config,
-      // трохи "живих" даних, щоб було видно всі елементи на прев'ю
+      // a bit of "live-looking" data so every element is visible in the preview
       room_temp_sensor: this._config.room_temp_sensor || '',
     };
     liveCard.setConfig(previewConfig);
     liveCard.hass = this._hass;
 
-    // Форсуємо стан "увімкнено", щоб всі елементи (не напівпрозорі) було видно й зручно тягати.
+    // Force an "on" state so every element is fully opaque and easy to drag.
     requestAnimationFrame(() => {
       try {
         liveCard._local.power = true;
@@ -1378,7 +1392,7 @@ class AirConditionerCardEditor extends HTMLElement {
       this._positionDragHandles(wrap, liveCard);
     });
 
-    // Перебудовуємо мітки, коли змінюється розмір контейнера (наприклад, вкладку відкрили в іншому вікні).
+    // Rebuild the handles when the container resizes (e.g. the tab was opened in another window).
     if (window.ResizeObserver) {
       const ro = new ResizeObserver(() => this._positionDragHandles(wrap, liveCard));
       ro.observe(wrap);
@@ -1580,4 +1594,6 @@ class AirConditionerCardEditor extends HTMLElement {
     return container;
   }
 }
-customElements.define('air-conditioner-card-editor', AirConditionerCardEditor);
+if (!customElements.get('air-conditioner-card-editor')) {
+  customElements.define('air-conditioner-card-editor', AirConditionerCardEditor);
+}

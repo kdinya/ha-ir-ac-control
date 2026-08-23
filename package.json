@@ -10,7 +10,13 @@
     "type": "git",
     "url": "git+https://github.com/kdinya/ha-ir-ac-control.git"
   },
-  "keywords": ["home-assistant", "lovelace-card", "broadlink", "ir-remote", "air-conditioner"],
+  "keywords": [
+    "home-assistant",
+    "lovelace-card",
+    "broadlink",
+    "ir-remote",
+    "air-conditioner"
+  ],
   "author": "",
   "license": "ISC",
   "bugs": {
@@ -18,6 +24,6 @@
   },
   "homepage": "https://github.com/kdinya/ha-ir-ac-control#readme",
   "devDependencies": {
-    "jsdom": "^24.0.0"
+    "jsdom": "^24.1.3"
   }
 }
