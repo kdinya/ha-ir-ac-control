@@ -85,6 +85,31 @@ langBtnEn.click();
 console.log('lang switched to', currentConfig.lang);
 if (currentConfig.lang !== 'en') throw new Error('lang switch failed');
 
+// --- 3. Every editor tab renders without throwing and has expected content. ---
+const expectedTabs = ['entities', 'commands', 'timers', 'position', 'appearance'];
+for (const tabName of expectedTabs) {
+  const tabBtn = editor.querySelector(`.tab[data-tab="${tabName}"]`);
+  if (!tabBtn) throw new Error(`Tab button missing: ${tabName}`);
+  tabBtn.click();
+  const panel = editor.querySelector('#panel');
+  if (!panel || panel.children.length === 0) {
+    throw new Error(`Tab "${tabName}" rendered an empty panel`);
+  }
+  console.log(`[tab:${tabName}] OK, ${panel.children.length} panel children`);
+}
+
+// commands tab must contain the temperature-code grid + learn buttons
+editor.querySelector('.tab[data-tab="commands"]').click();
+const learnButtons = editor.querySelectorAll('.learn-btn');
+if (learnButtons.length < 5) throw new Error('Expected multiple "Learn" buttons on commands tab, found ' + learnButtons.length);
+console.log('learn buttons found:', learnButtons.length);
+
+// version exposed on the class, used by users to verify the *active* class version
+if (customElements.get('air-conditioner-card-editor').VERSION !== customElements.get('air-conditioner-card').VERSION) {
+  throw new Error('Card/editor VERSION mismatch');
+}
+console.log('active class VERSION:', customElements.get('air-conditioner-card-editor').VERSION);
+
 // switch to position tab and check drag handles built
 const posTab = editor.querySelector('.tab[data-tab="position"]');
 posTab.click();

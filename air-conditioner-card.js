@@ -1,9 +1,10 @@
 /**
- * Air Conditioner Card (Universal IR/Broadlink Edition) v1.1.1
+ * Air Conditioner Card (Universal IR Remote Edition) v1.1.2
  * https://github.com/kdinya/ha-ir-ac-control
  *
  * Universal Home Assistant Lovelace card for controlling an air conditioner
- * via an IR remote (Broadlink remote.send_command / remote.learn_command).
+ * via any `remote` entity that supports `remote.send_command` /
+ * `remote.learn_command` (Broadlink, Xiaomi, ESPHome remote, etc.).
  *
  * Every entity is optional except the remote (needed only to actually send
  * IR commands), and everything is configurable through a visual editor:
@@ -29,7 +30,7 @@
  * temperature is stored in an input_number helper for the same reason.
  */
 
-const CARD_VERSION = '1.1.1';
+const CARD_VERSION = '1.1.2';
 console.info(`%c AIR-CONDITIONER-CARD %c v${CARD_VERSION} `, 'color:white;background:#1a8fce;font-weight:700;', 'color:#1a8fce;background:#111;font-weight:700;');
 
 // ---------------------------------------------------------------------------
@@ -1044,6 +1045,7 @@ class AirConditionerCard extends HTMLElement {
   static getConfigElement() { return document.createElement('air-conditioner-card-editor'); }
   static getStubConfig() { return { remote_entity: '', device: '', room_temp_sensor: '' }; }
 }
+AirConditionerCard.VERSION = CARD_VERSION;
 
 // Guarded define: if this resource gets re-evaluated in the same browser tab
 // (e.g. HA's "Reload resources" without a full page reload, or the resource
@@ -1057,14 +1059,24 @@ class AirConditionerCard extends HTMLElement {
 // existing custom element tag within the same page session).
 if (!customElements.get('air-conditioner-card')) {
   customElements.define('air-conditioner-card', AirConditionerCard);
+} else {
+  console.warn(
+    `%c AIR-CONDITIONER-CARD %c STALE TAB — v${CARD_VERSION} was just loaded from disk, but this ` +
+    `browser tab already has an OLDER "air-conditioner-card" class registered and JS cannot ` +
+    `replace it without a real page reload. The console banner above always logs the file's ` +
+    `version, even when the active class is old — it is NOT proof the new code is running. ` +
+    `Close this tab completely (or hard-reload with cache disabled / open a private window) ` +
+    `to actually load v${CARD_VERSION}.`,
+    'color:white;background:#c62828;font-weight:700;', 'color:#c62828;background:#111;font-weight:700;'
+  );
 }
 
 window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === 'air-conditioner-card')) {
   window.customCards.push({
     type: 'air-conditioner-card',
-    name: 'Air Conditioner Card (IR/Broadlink)',
-    description: 'Universal Lovelace card to control an air conditioner via an IR remote (Broadlink), with in-editor IR code learning.',
+    name: 'Air Conditioner Card (IR Remote)',
+    description: 'Universal Lovelace card to control an air conditioner via any Home Assistant IR remote entity (Broadlink, Xiaomi, ESPHome, etc.), with in-editor IR code learning.',
     preview: false,
   });
 }
@@ -1594,6 +1606,14 @@ class AirConditionerCardEditor extends HTMLElement {
     return container;
   }
 }
+AirConditionerCardEditor.VERSION = CARD_VERSION;
 if (!customElements.get('air-conditioner-card-editor')) {
   customElements.define('air-conditioner-card-editor', AirConditionerCardEditor);
+} else {
+  console.warn(
+    `AIR-CONDITIONER-CARD: STALE TAB — the visual EDITOR class is still the old one from before ` +
+    `this tab's first load of the resource. This is why new editor tabs/fields/language switch ` +
+    `can be missing even though HACS/the file says v${CARD_VERSION}. Close this tab and open a ` +
+    `fresh one (or hard-reload with cache disabled) to load the current editor.`
+  );
 }

@@ -1,7 +1,8 @@
-# Air Conditioner Card (IR/Broadlink)
+# Air Conditioner Card (IR Remote)
 
 Universal Home Assistant Lovelace card for controlling an air conditioner
-via an IR remote (Broadlink `remote.send_command` / `remote.learn_command`).
+via any `remote` entity that supports `remote.send_command` /
+`remote.learn_command` — Broadlink, Xiaomi, ESPHome remote, etc.
 Seven-segment display look: large temperature, clock, room/outdoor sensors,
 ON/OFF, a second mode button (TURBO/ECO/custom name), 4 timer presets + a
 manual timer with a configurable step, +/- temperature buttons.
@@ -36,7 +37,7 @@ positioned/styled).
 ### HACS (recommended)
 1. HACS → Frontend → ⋮ → Custom repositories → add
    `https://github.com/kdinya/ha-ir-ac-control`, category **Lovelace**.
-2. Install "Air Conditioner Card (IR/Broadlink)".
+2. Install "Air Conditioner Card (IR Remote)".
 3. The card shows up right away in the card picker when adding it to a
    dashboard — no manual YAML resource needed.
 
@@ -45,29 +46,56 @@ positioned/styled).
 2. Add a resource: Settings → Dashboards → Resources →
    `/local/ha-ir-ac-control/air-conditioner-card.js`, type **JavaScript Module**.
 
-## Updating — important cache/browser gotcha
+## Updating — how to actually get new code into the editor
 
-Custom elements (`air-conditioner-card`, `air-conditioner-card-editor`)
-can only be registered **once per browser tab session**. After updating the
-file (via HACS or manually):
+Custom elements (`air-conditioner-card`, `air-conditioner-card-editor`) can
+only be registered **once per browser tab session**, and browsers cannot
+redefine an already-registered tag. This causes a confusing situation: the
+console banner logs the *file's* version on every load, even when the
+*active class* is stuck on an older one — **the banner alone is not proof
+the new editor is running.**
 
-1. **Do a full, hard reload of the browser tab** — `Ctrl+Shift+R` /
-   `Cmd+Shift+R` (or close and reopen the tab). Home Assistant's own
-   "Reload resources" button in Developer Tools → YAML is **not enough** —
-   it re-fetches the file but cannot re-register an already-defined custom
-   element, so the editor keeps running the old code even though the file
-   on disk is new.
-2. If you're on HACS, make sure you actually clicked **Update/Redownload**
-   in HACS — HACS does not auto-pull new commits just because the GitHub
-   repo changed.
-3. To confirm which version is actually loaded, open the browser console —
-   the card logs `AIR-CONDITIONER-CARD v1.1.0` (or newer) on load. If it
-   still shows an older version number, the browser is using a stale copy.
-4. As of v1.1.1 the resource itself guards against the "already defined"
-   crash that a resource reload without a hard refresh used to cause (it
-   used to silently abort the whole script partway through, which is why
-   the editor could look completely unchanged after an update). A hard
-   reload is still required to actually pick up new code either way.
+If the editor is missing tabs/fields you know were added in a newer
+version, work through this checklist in order:
+
+1. **Confirm HACS actually downloaded the new version**, not just listed it
+   as available. Open HACS → the repository → make sure the "Update"/
+   redownload action was clicked, not merely that a new version badge is
+   showing.
+2. **Check the real active class version** in the browser console (F12):
+   ```js
+   customElements.get('air-conditioner-card-editor')?.VERSION
+   ```
+   This reads the version off the class object itself — if it's older than
+   what's on GitHub, this exact browser tab is running stale code no matter
+   what any version banner says.
+3. **Open the dashboard in a brand-new private/incognito window.** This is
+   the single most reliable test: a private window has no custom-element
+   registry history and no HTTP cache, so it will show you the true,
+   currently-served code. If it looks correct there but not in your normal
+   tab/window, the problem is 100% local caching, not the card.
+4. **Close every tab pointed at this Home Assistant instance**, then open a
+   fresh one. A same-tab reload (even a hard one) usually works, but if
+   Home Assistant's service worker or an intermediate CDN (HACS-installed
+   resources are commonly served through jsDelivr, which can cache a
+   release for a while) is still serving an old file, only a from-scratch
+   navigation reliably breaks that chain.
+5. If it's still stale after all of that, open DevTools → Sources, find
+   `air-conditioner-card.js`, and search its contents for a string that
+   only exists in the new version (e.g. `lang-bar`) — this tells you
+   definitively whether the *served bytes* are new (and the problem is the
+   customElements registry / needs a fresher tab) or old (and the problem
+   is upstream caching, e.g. jsDelivr/HACS not having pulled the release
+   yet — try again in a few minutes or re-add the custom repository).
+
+As of v1.1.1 the resource guards against the "already defined" hard crash
+that a resource reload without a full page reload used to cause (previously
+it silently aborted the whole script partway through parsing, which is why
+the editor could look completely unchanged after an update — the editor
+class is registered near the end of the file and never got reached). That
+crash is fixed, but the underlying browser limitation — one registration
+per tab — is not something a script can work around; steps 3–4 above are
+the real fix when you hit it.
 
 ## Recommended helpers
 
